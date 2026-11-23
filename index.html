@@ -48,7 +48,7 @@
 
     <!-- Main Content -->
     <main class="flex-1 px-4 py-4 space-y-4 safe-bottom">
-      <!-- Diagnostic / Error Banner (only shows if something breaks) -->
+      <!-- Diagnostic / Error Banner -->
       <div id="js-error-banner" class="hidden rounded-2xl border border-rose-400 bg-rose-100 text-rose-950 p-3 text-xs font-mono"></div>
 
       <!-- Expiration Alert Banner -->
@@ -201,8 +201,8 @@
       </div>
 
       <div class="flex items-center justify-between pt-3 border-t border-slate-100">
-        <button onclick="resetDemoData()" type="button" class="text-xs font-semibold text-rose-600">
-          Beispieldaten wiederherstellen
+        <button onclick="clearAllData()" type="button" class="text-xs font-semibold text-rose-600">
+          Alle Daten leeren
         </button>
         <button onclick="saveSettings()" type="button" class="bg-slate-900 active:bg-slate-800 text-white text-xs font-semibold px-4 py-2.5 rounded-xl">
           Speichern
@@ -211,7 +211,6 @@
     </div>
   </div>
 
-  <!-- Load Scanner Library asynchronously so it NEVER blocks app buttons -->
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" async></script>
 
   <script>
@@ -268,48 +267,7 @@
           warningDays: 7,
           groupByCategory: false
         },
-        items: [
-          {
-            id: 'demo-1',
-            category: 'nudeln-reis',
-            name: 'Spaghetti Nr. 5',
-            brand: 'Barilla • 500g',
-            quantity: 2,
-            expiryDate: daysFromNowISO(95),
-            notes: 'Regal links oben',
-            barcode: '8076809513726'
-          },
-          {
-            id: 'demo-2',
-            category: 'nudeln-reis',
-            name: 'Penne Rigate',
-            brand: 'De Cecco • Bio 500g',
-            quantity: 1,
-            expiryDate: daysFromNowISO(4),
-            notes: 'Vorne rechts',
-            barcode: ''
-          },
-          {
-            id: 'demo-3',
-            category: 'kraeuter-gewuerze',
-            name: 'Oregano gerebelt',
-            brand: 'Ostmann • Glas',
-            quantity: 1,
-            expiryDate: daysFromNowISO(-3),
-            notes: 'Gewürzboard',
-            barcode: ''
-          },
-          {
-            id: 'demo-4',
-            category: 'konserven',
-            name: 'Gehackte Tomaten',
-            brand: 'Mutti • 400g Dose',
-            quantity: 3,
-            expiryDate: daysFromNowISO(180),
-            notes: 'Keller Fach 2',
-            barcode: ''
-          }
-        ]
+        items: []
       };
     }
 
@@ -524,8 +482,8 @@
         listContainer.innerHTML =
           '<div class="bg-white rounded-2xl border border-dashed border-slate-300 p-8 text-center space-y-2">' +
           '<div class="text-3xl">🫙</div>' +
-          '<div class="font-semibold text-slate-800 text-sm">Keine passenden Vorräte gefunden</div>' +
-          '<p class="text-xs text-slate-500">Tippe oben auf „＋ Neu“, um ein Produkt einzuscannen oder manuell einzutragen.</p>' +
+          '<div class="font-semibold text-slate-800 text-sm">Noch keine Vorräte eingetragen</div>' +
+          '<p class="text-xs text-slate-500">Tippe oben auf „＋ Neu“, um dein erstes Produkt einzuscannen oder manuell einzutragen.</p>' +
           '</div>';
         return;
       }
@@ -889,7 +847,7 @@
       render();
     }
 
-    function resetDemoData() {
+    function clearAllData() {
       state = createDefaultState();
       persist();
       closeSettingsModal();
@@ -929,7 +887,6 @@
       reader.readAsText(file);
     }
 
-    // Initial render
     render();
   </script>
 </body>
