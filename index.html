@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Vorrats-Tracker" />
+  <meta name="theme-color" content="#16a34a" />
+  <title>Kellerbestand & Vorrats-Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    body {
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior-y: contain;
+    }
+    .safe-bottom {
+      padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen antialiased">
+  <div id="app" class="max-w-xl mx-auto min-h-screen flex flex-col bg-slate-50 shadow-sm">
+    <!-- Header -->
+    <header class="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+      <div>
+        <h1 class="text-lg font-bold tracking-tight text-slate-900 flex items-center gap-2">
+          <span>🫙</span>
+          <span>Keller & Vorrat</span>
+        </h1>
+        <p id="header-subtitle" class="text-xs text-slate-500">Lokal gespeichert • Bereit für iPhone & Android</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="btn-open-add" type="button" class="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-sm font-semibold px-3.5 py-2 rounded-xl shadow-sm transition flex items-center gap-1.5">
+          <span>＋</span>
+          <span>Neu</span>
+        </button>
+        <button id="btn-open-settings" type="button" aria-label="Einstellungen und Backup" class="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 active:scale-95 text-slate-700 transition">
+          ⚙️
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 px-4 py-4 space-y-4 safe-bottom">
+      <!-- Expiration Alert Banner -->
+      <div id="alert-banner" class="hidden rounded-2xl border p-3.5 text-sm shadow-xs"></div>
+
+      <!-- Status Summary Cards -->
+      <section class="grid grid-cols-3 gap-2.5">
+        <button data-filter-status="expired" type="button" class="status-card text-left bg-white rounded-2xl p-3 border border-rose-200 hover:border-rose-400 transition">
+          <div class="text-xs font-medium text-rose-600">Abgelaufen</div>
+          <div id="count-expired" class="text-2xl font-bold text-rose-700 mt-0.5">0</div>
+        </button>
+        <button data-filter-status="soon" type="button" class="status-card text-left bg-white rounded-2xl p-3 border border-amber-200 hover:border-amber-400 transition">
+          <div class="text-xs font-medium text-amber-600">Bald fällig (≤7T)</div>
+          <div id="count-soon" class="text-2xl font-bold text-amber-700 mt-0.5">0</div>
+        </button>
+        <button data-filter-status="ok" type="button" class="status-card text-left bg-white rounded-2xl p-3 border border-emerald-200 hover:border-emerald-400 transition">
+          <div class="text-xs font-medium text-emerald-600">Im Bestand</div>
+          <div id="count-ok" class="text-2xl font-bold text-emerald-700 mt-0.5">0</div>
+        </button>
+      </section>
+
+      <!-- Search & View Mode Controls -->
+      <section class="bg-white rounded-2xl p-3 border border-slate-200 space-y-2.5">
+        <div class="flex gap-2">
+          <div class="relative flex-1">
+            <input id="search-input" type="search" placeholder="Produkt, Sorte oder Marke suchen..." class="w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 py-2 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+            <span class="absolute left-3 top-2.5 text-slate-400 text-sm">🔍</span>
+          </div>
+          <button id="btn-group-toggle" type="button" class="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-700 whitespace-nowrap transition" title="Sortierung / Gruppierung wechseln">
+            Sort: MHD
+          </button>
+        </div>
+
+        <!-- Category Filter Chips -->
+        <div id="category-filters" class="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar"></div>
+      </section>
+
+      <!-- Inventory List -->
+      <section id="inventory-container" class="space-y-3"></section>
+    </main>
+  </div>
+
+  <!-- Add / Edit Modal -->
+  <div id="modal-item" class="fixed inset-0 z-40 hidden bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl p-5 max-h-[92vh] overflow-y-auto space-y-4 shadow-xl">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <h2 id="modal-item-title" class="text-lg font-bold text-slate-900">Produkt einlagern</h2>
+        <button id="btn-close-item-modal" type="button" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center font-bold">✕</button>
+      </div>
+
+      <!-- Barcode Scanner Box -->
+      <div class="bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+            <span>📷</span>
+            <span>Barcode-Scanner (Open Food Facts)</span>
+          </span>
+          <button id="btn-toggle-scanner" type="button" class="text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg transition">
+            Kamera starten
+          </button>
+        </div>
+        <div id="scanner-status" class="text-xs text-slate-500">Scanne den Strichcode auf der Verpackung oder fülle die Felder direkt aus.</div>
+        <div id="qr-reader" class="hidden rounded-xl overflow-hidden border border-slate-300 bg-black"></div>
+      </div>
+
+      <!-- Quick Preset Selector for Known Varieties in Category -->
+      <div id="known-presets-box" class="hidden bg-emerald-50/70 border border-emerald-200 rounded-2xl p-3 space-y-1.5">
+        <label for="preset-select" class="block text-xs font-semibold text-emerald-900">
+          ⚡ Bekannte Sorte in dieser Kategorie schnell übernehmen
+        </label>
+        <select id="preset-select" class="w-full rounded-xl border border-emerald-300 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+          <option value="">-- Neue Sorte / neues Produkt eingeben --</option>
+        </select>
+      </div>
+
+      <form id="item-form" class="space-y-3">
+        <input type="hidden" id="item-id" />
+        <input type="hidden" id="item-barcode" />
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label for="item-category" class="block text-xs font-semibold text-slate-700 mb-1">Kategorie *</label>
+            <select id="item-category" required class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></select>
+          </div>
+          <div>
+            <label for="item-expiry" class="block text-xs font-semibold text-slate-700 mb-1">Mindesthaltbarkeit (MHD) *</label>
+            <input id="item-expiry" type="date" required class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          </div>
+        </div>
+
+        <div>
+          <label for="item-name" class="block text-xs font-semibold text-slate-700 mb-1">Produkt / Sorte *</label>
+          <input id="item-name" type="text" required placeholder="z. B. Spaghetti Nr. 5, Penne Rigate, Oregano..." class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label for="item-brand" class="block text-xs font-semibold text-slate-700 mb-1">Hersteller / Variante</label>
+            <input id="item-brand" type="text" placeholder="z. B. Barilla, Bio, 500g" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          </div>
+          <div>
+            <label for="item-quantity" class="block text-xs font-semibold text-slate-700 mb-1">Anzahl Packungen</label>
+            <input id="item-quantity" type="number" min="1" step="1" value="1" required class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          </div>
+        </div>
+
+        <div>
+          <label for="item-notes" class="block text-xs font-semibold text-slate-700 mb-1">Lagerort / Notiz (optional)</label>
+          <input id="item-notes" type="text" placeholder="z. B. Regal links oben, Keller Fach 2" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+        </div>
+
+        <div class="pt-2 flex gap-2.5">
+          <button type="button" id="btn-cancel-item" class="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 text-slate-700 font-semibold text-sm hover:bg-slate-50 transition">
+            Abbrechen
+          </button>
+          <button type="submit" class="flex-2 py-2.5 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm shadow-sm transition">
+            Speichern
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Settings / Backup / Future Hooks Modal -->
+  <div id="modal-settings" class="fixed inset-0 z-40 hidden bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl p-5 max-h-[90vh] overflow-y-auto space-y-4 shadow-xl">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <h2 class="text-lg font-bold text-slate-900">Einstellungen & Backup</h2>
+        <button id="btn-close-settings-modal" type="button" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center font-bold">✕</button>
+      </div>
+
+      <div class="space-y-2">
+        <label for="warning-days-input" class="block text-xs font-semibold text-slate-700">
+          „Bald fällig“-Warnung wie viele Tage vor Ablauf?
+        </label>
+        <input id="warning-days-input" type="number" min="1" max="90" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+      </div>
+
+      <div class="space-y-2 pt-1">
+        <div class="text-xs font-semibold text-slate-700">Datensicherung (JSON Backup)</div>
+        <div class="flex gap-2">
+          <button id="btn-export-json" type="button" class="flex-1 py-2 px-3 rounded-xl border border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-800">
+            ⬇️ Backup exportieren
+          </button>
+          <label class="flex-1 py-2 px-3 rounded-xl border border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-800 text-center cursor-pointer">
+            ⬆️ Backup laden
+            <input id="input-import-json" type="file" accept="application/json" class="hidden" />
+          </label>
+        </div>
+      </div>
+
+      <div class="bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-1.5 text-xs text-slate-600">
+        <div class="font-semibold text-slate-800">Vorbereitete Erweiterungs-Schnittstellen</div>
+        <p>• <strong>StorageAdapter:</strong> Aktuell lokal (<code>LocalStorage</code>) – später einfach gegen Cloud-Sync (z. B. Supabase/Firebase) austauschbar.</p>
+        <p>• <strong>CalendarReminderHook:</strong> Schnittstelle für spätere Kalender-/Erinnerungs-Einträge bereits angelegt.</p>
+      </div>
+
+      <div class="flex items-center justify-between pt-2 border-t border-slate-100">
+        <button id="btn-reset-demo" type="button" class="text-xs font-semibold text-rose-600 hover:underline">
+          Beispieldaten wiederherstellen
+        </button>
+        <button id="btn-save-settings" type="button" class="bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2.5 rounded-xl">
+          Einstellungen speichern
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // 1. CATEGORIES & EXTENSIBILITY HOOKS (Calendar / Cloud Sync ready)
+    // =========================================================================
+    const CATEGORIES = [
+      { id: 'nudeln-reis', label: 'Nudeln & Reis', icon: '🍝' },
+      { id: 'kraeuter-gewuerze', label: 'Kräuter & Gewürze', icon: '🌿' },
+      { id: 'konserven', label: 'Konserven', icon: '🥫' },
+      { id: 'sossen-oele', label: 'Soßen & Öle', icon: '🫙' },
+      { id: 'getraenke', label: 'Getränke', icon: '🥤' },
+      { id: 'suesse-snacks', label: 'Süßes & Snacks', icon: '🍫' },
+      { id: 'sonstiges', label: 'Sonstiges', icon: '📦' }
+    ];
+
+    /**
+     * Prepared hook for future Calendar / Reminders integration.
+     * Currently a clean no-op / stub so we can plug in .ics export or native bridge later.
+     */
+    const CalendarReminderHook = {
+      onItemSaved(_item) {},
+      onItemExpired(_items) {}
+    };
+
+    /**
+     * Modular storage adapter.
+     * Swap this implementation later for a shared cloud database without changing UI code.
+     */
+    const STORAGE_KEY = 'keller_vorrat_v1';
+    const LocalStorageAdapter = {
+      load() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return null;
+          return JSON.parse(raw);
+        } catch (err) {
+          console.error('Fehler beim Laden aus LocalStorage:', err);
+          return null;
+        }
+      },
+      save(data) {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        } catch (err) {
+          console.error('Fehler beim Speichern in LocalStorage:', err);
+        }
+      }
+    };
+
+    // =========================================================================
+    // 2. INITIAL STATE & SAMPLE DATA
+    // =========================================================================
+    function daysFromNowISO(offsetDays) {
+      const d = new Date();
+      d.setHours(12, 0, 0, 0);
+      d.setDate(d.getDate() + offsetDays);
+      return d.toISOString().slice(0, 10);
+    }
+
+    function createDefaultState() {
+      return {
+        settings: {
+          warningDays: 7,
+          groupByCategory: false
+        },
+        items: [
+          {
+            id: 'demo-1',
+            category: 'nudeln-reis',
+            name: 'Spaghetti Nr. 5',
+            brand: 'Barilla • 500g',
+            quantity: 2,
+            expiryDate: daysFromNowISO(95),
+            notes: 'Regal links oben',
+            barcode: '8076809513726'
+          },
+          {
+            id: 'demo-2',
+            category: 'nudeln-reis',
+            name: 'Penne Rigate',
+            brand: 'De Cecco • Bio 500g',
+            quantity: 1,
+            expiryDate: daysFromNowISO(4),
+            notes: 'Vorne rechts',
+            barcode: ''
+          },
+          {
+            id: 'demo-3',
+            category: 'kraeuter-gewuerze',
+            name: 'Oregano gerebelt',
+            brand: 'Ostmann • Glas',
+            quantity: 1,
+            expiryDate: daysFromNowISO(-3),
+            notes: 'Gewürzboard',
+            barcode: ''
+          },
+          {
+            id: 'demo-4',
+            category: 'konserven',
+            name: 'Gehackte Tomaten',
+            brand: 'Mutti • 400g Dose',
+            quantity: 3,
+            expiryDate: daysFromNowISO(180),
+            notes: 'Keller Fach 2',
+            barcode: ''
+          }
+        ]
+      };
+    }
+
+    let state = LocalStorageAdapter.load() || createDefaultState();
+    let activeCategory = 'all';
+    let activeStatusFilter = 'all';
+    let searchQuery = '';
+    let html5QrCode = null;
+    let isScanning = false;
+
+    function persist() {
+      LocalStorageAdapter.save(state);
+    }
+
+    // =========================================================================
+    // 3. DATE & STATUS HELPERS
+    // =========================================================================
+    function getDaysUntil(dateStr) {
+      if (!dateStr) return 9999;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const target = new Date(`${dateStr}T00:00:00`); return Math.round((target - today) / (1000 * 60 * 60 * 24)); }  function getItemStatus(item) { const days = getDaysUntil(item.expiryDate); if (days < 0) return 'expired'; if (days <= (state.settings.warningDays \vert{}\vert{} 7)) return 'soon'; return 'ok'; }  function formatDateDE(dateStr) { if (!dateStr) return '-'; const parts = dateStr.split('-'); if (parts.length !== 3) return dateStr; return `${parts[2]}.${parts[1]}.${parts[0]}`;
+    }
+
+    function getCategoryMeta(catId) {
+      return CATEGORIES.find((c) => c.id === catId) || { id: 'sonstiges', label: 'Sonstiges', icon: '📦' };
+    }
+
+    // =========================================================================
+    // 4. KNOWN VARIETIES PER CATEGORY (Quick re-stocking of different varieties)
+    // =========================================================================
+    function getKnownVarietiesForCategory(catId) {
+      const map = new Map();
+      state.items
+        .filter((it) => it.category === catId)
+        .forEach((it) => {
+          const key = `${it.name.trim().toLowerCase()}\vert{}\vert{}${(it.brand || '').trim().toLowerCase()}`;
+          if (!map.has(key)) {
+            map.set(key, {
+              name: it.name,
+              brand: it.brand || '',
+              barcode: it.barcode || '',
+              notes: it.notes || ''
+            });
+          }
+        });
+      return Array.from(map.values());
+    }
+
+    function populatePresetDropdown(catId) {
+      const box = document.getElementById('known-presets-box');
+      const select = document.getElementById('preset-select');
+      const presets = getKnownVarietiesForCategory(catId);
+
+      select.innerHTML = '<option value="">-- Neue Sorte / neues Produkt eingeben --</option>';
+      if (presets.length === 0) {
+        box.classList.add('hidden');
+        return;
+      }
+
+      presets.forEach((p, idx) => {
+        const opt = document.createElement('option');
+        opt.value = String(idx);
+        opt.textContent = p.brand ? `${p.name} (${p.brand})` : p.name;
+        select.appendChild(opt);
+      });
+      box.classList.remove('hidden');
+    }
+
+    // =========================================================================
+    // 5. RENDERING
+    // =========================================================================
+    function escapeHTML(str) {
+      return String(str || '')
+        .replace(/&/g, '&')
+        .replace(/</g, '<')
+        .replace(/>/g, '>')
+        .replace(/"/g, '"');
+    }
+
+    function render() {
+      const expiredItems = state.items.filter((i) => getItemStatus(i) === 'expired');
+      const soonItems = state.items.filter((i) => getItemStatus(i) === 'soon');
+      const okItems = state.items.filter((i) => getItemStatus(i) === 'ok');
+
+      document.getElementById('count-expired').textContent = String(expiredItems.reduce((s, i) => s + i.quantity, 0));
+      document.getElementById('count-soon').textContent = String(soonItems.reduce((s, i) => s + i.quantity, 0));
+      document.getElementById('count-ok').textContent = String(okItems.reduce((s, i) => s + i.quantity, 0));
+
+      // Alert banner
+      const banner = document.getElementById('alert-banner');
+      if (expiredItems.length > 0 || soonItems.length > 0) {
+        banner.classList.remove('hidden');
+        if (expiredItems.length > 0) {
+          banner.className = 'rounded-2xl border border-rose-300 bg-rose-50 text-rose-900 p-3.5 text-sm shadow-xs';
+          const names = expiredItems.slice(0, 3).map((i) => `${i.name} (${i.brand || 'ohne Marke'})`).join(', ');
+          banner.innerHTML = `
+            <div class="font-bold flex items-center gap-1.5">🚨 ${expiredItems.length} Eintrag/Einträge über dem MHD!</div>
+            <div class="text-xs mt-1 text-rose-800">${escapeHTML(names)}${expiredItems.length > 3 ? ' u. a.' : ''} – bitte prüfen oder ausbuchen.</div>
+          `;
+        } else {
+          banner.className = 'rounded-2xl border border-amber-300 bg-amber-50 text-amber-900 p-3.5 text-sm shadow-xs';
+          banner.innerHTML = `
+            <div class="font-bold flex items-center gap-1.5">⏳ ${soonItems.length} Produkt(e) laufen bald ab</div>
+            <div class="text-xs mt-1 text-amber-800">Innerhalb der nächsten ${state.settings.warningDays || 7} Tage fällig.</div>
+          `;
+        }
+      } else {
+        banner.classList.add('hidden');
+      }
+
+      // Status card active highlight
+      document.querySelectorAll('.status-card').forEach((btn) => {
+        const st = btn.getAttribute('data-filter-status');
+        const isActive = activeStatusFilter === st;
+        btn.classList.toggle('ring-2', isActive);
+        btn.classList.toggle('ring-slate-800', isActive);
+      });
+
+      // Category chips
+      const catContainer = document.getElementById('category-filters');
+      catContainer.innerHTML = '';
+      const allChip = createFilterChip('all', 'Alle', '📋', activeCategory === 'all');
+      catContainer.appendChild(allChip);
+      CATEGORIES.forEach((cat) => {
+        catContainer.appendChild(createFilterChip(cat.id, cat.label, cat.icon, activeCategory === cat.id));
+      });
+
+      // Sort button label
+      const groupBtn = document.getElementById('btn-group-toggle');
+      groupBtn.textContent = state.settings.groupByCategory ? 'Sort: Kategorie' : 'Sort: MHD';
+
+      // Filter items
+      const q = searchQuery.trim().toLowerCase();
+      const filtered = state.items
+        .filter((item) => {
+          if (activeCategory !== 'all' && item.category !== activeCategory) return false;
+          if (activeStatusFilter !== 'all' && getItemStatus(item) !== activeStatusFilter) return false;
+          if (q) {
+            const catLabel = getCategoryMeta(item.category).label.toLowerCase();
+            const hay = `${item.name}${item.brand || ''} ${item.notes \vert{}\vert{} ''}${catLabel}`.toLowerCase();
+            if (!hay.includes(q)) return false;
+          }
+          return true;
+        })
+        .sort((a, b) => getDaysUntil(a.expiryDate) - getDaysUntil(b.expiryDate));
+
+      const listContainer = document.getElementById('inventory-container');
+      listContainer.innerHTML = '';
+
+      if (filtered.length === 0) {
+        listContainer.innerHTML = `
+          <div class="bg-white rounded-2xl border border-dashed border-slate-300 p-8 text-center space-y-2">
+            <div class="text-3xl">🫙</div>
+            <div class="font-semibold text-slate-800 text-sm">Keine passenden Vorräte gefunden</div>
+            <p class="text-xs text-slate-500">Tippe oben auf „＋ Neu“, um ein Produkt einzuscannen oder manuell einzutragen.</p>
+          </div>
+        `;
+        return;
+      }
+
+      if (state.settings.groupByCategory) {
+        const grouped = new Map();
+        filtered.forEach((item) => {
+          if (!grouped.has(item.category)) grouped.set(item.category, []);
+          grouped.get(item.category).push(item);
+        });
+
+        grouped.forEach((itemsInCat, catId) => {
+          const meta = getCategoryMeta(catId);
+          const totalQty = itemsInCat.reduce((sum, i) => sum + i.quantity, 0);
+          const section = document.createElement('div');
+          section.className = 'space-y-2';
+          section.innerHTML = `
+            <div class="flex items-center justify-between px-1 pt-1">
+              <h2 class="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                <span>${meta.icon}</span>
+                <span>${escapeHTML(meta.label)}</span>
+              </h2>
+              <span class="text-xs font-semibold text-slate-500 bg-slate-200/70 px-2 py-0.5 rounded-full">
+                ${itemsInCat.length} Sorte(n) •${totalQty} Stk.
+              </span>
+            </div>
+          `;
+          itemsInCat.forEach((item) => section.appendChild(renderItemCard(item, false)));
+          listContainer.appendChild(section);
+        });
+      } else {
+        filtered.forEach((item) => listContainer.appendChild(renderItemCard(item, true)));
+      }
+    }
+
+    function createFilterChip(id, label, icon, active) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition flex items-center gap-1 ${ active ? 'bg-slate-900 text-white shadow-xs' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }`; btn.innerHTML = `<span>${icon}</span><span>${escapeHTML(label)}</span>`; btn.addEventListener('click', () => { activeCategory = id; render(); }); return btn; }  function renderItemCard(item, showCategoryBadge) { const status = getItemStatus(item); const days = getDaysUntil(item.expiryDate); const cat = getCategoryMeta(item.category);  let badgeClass = 'bg-emerald-100 text-emerald-800 border-emerald-200'; let badgeText = `MHD ${formatDateDE(item.expiryDate
