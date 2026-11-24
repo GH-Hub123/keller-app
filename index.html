@@ -667,3 +667,764 @@
       }
 
       var catBuckets = {};
+      for (var f = 0; f < filtered.length; f++) {
+        var item = filtered[f];
+        var targetCatId = getCategoryMeta(item.category).id;
+        if (!catBuckets[targetCatId]) catBuckets[targetCatId] = [];
+        catBuckets[targetCatId].push(item);
+      }
+
+      var activeCategories = getCategories();
+      var html = '';
+      for (var k = 0; k < activeCategories.length; k++) {
+        var cat = activeCategories[k];
+        var itemsInCat = catBuckets[cat.id];
+        if (!itemsInCat || itemsInCat.length === 0) continue;
+
+        var totalCatQty = 0;
+        var catExpiredCount = 0;
+        var catSoonCount = 0;
+
+        var varietyMap = {};
+        var varietyOrder = [];
+        for (var m = 0; m < itemsInCat.length; m++) {
+          var itm = itemsInCat[m];
+          totalCatQty += itm.quantity;
+          var stItem = getItemStatus(itm);
+          if (stItem === 'expired') catExpiredCount += itm.quantity;
+          else if (stItem === 'soon') catSoonCount += itm.quantity;
+
+          var vKey = makeVarietyKey(cat.id, itm.name, itm.brand);
+          if (!varietyMap[vKey]) {
+            varietyMap[vKey] = {
+              key: vKey,
+              name: itm.name,
+              brand: itm.brand || '',
+              items: []
+            };
+            varietyOrder.push(vKey);
+          }
+          varietyMap[vKey].items.push(itm);
+        }
+
+        varietyOrder.sort(function (a, b) {
+          return varietyMap[a].name.localeCompare(varietyMap[b].name, 'de');
+        });
+
+        var isCatOpen = isSearchingOrFiltering ? true : !!expandedCategories[cat.id];
+        var catBadges = '';
+        if (catExpiredCount > 0) {
+          catBadges += '<span class="text-[11px] font-bold bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full">🚨 ' + catExpiredCount + '</span>';
+        }
+        if (catSoonCount > 0) {
+          catBadges += '<span class="text-[11px] font-semibold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full">⏳ ' + catSoonCount + '</span>';
+        }
+
+        html +=
+          '<div class="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">' +
+            '<button type="button" onclick="toggleCategoryFolder(\'' + escapeHTML(cat.id) + '\')" class="w-full px-4 py-3.5 flex items-center justify-between gap-2 text-left active:bg-slate-50">' +
+              '<div class="flex items-center gap-2.5 min-w-0">' +
+                '<span class="text-xl">' + escapeHTML(cat.icon) + '</span>' +
+                '<div class="min-w-0">' +
+                  '<div class="font-bold text-slate-900 text-base truncate">' + escapeHTML(cat.label) + '</div>' +
+                  '<div class="text-xs text-slate-500">' + varietyOrder.length + (varietyOrder.length === 1 ? ' Sorte' : ' Sorten') + '</div>' +
+                '</div>' +
+              '</div>' +
+              '<div class="flex items-center gap-1.5 shrink-0">' +
+                catBadges +
+                '<span class="bg-slate-900 text-white font-bold text-xs px-2.5 py-1 rounded-xl">' + totalCatQty + ' Stk.</span>' +
+                '<span class="text-slate-400 text-xs ml-1">' + (isCatOpen ? '▲' : '▼') + '</span>' +
+              '</div>' +
+            '</button>';
+
+        if (isCatOpen) {
+          html += '<div class="border-t border-slate-100 bg-slate-50/70 p-2.5 space-y-2">';
+
+          for (var v = 0; v < varietyOrder.length; v++) {
+            var vGroup = varietyMap[varietyOrder[v]];
+            vGroup.items.sort(function (a, b) {
+              return getDaysUntil(a.expiryDate) - getDaysUntil(b.expiryDate);
+            });
+
+            var vTotalQty = 0;
+            var vMinDays = 99999;
+            for (var pIdx = 0; pIdx < vGroup.items.length; pIdx++) {
+              vTotalQty += vGroup.items[pIdx].quantity;
+              var d = getDaysUntil(vGroup.items[pIdx].expiryDate);
+              if (d < vMinDays) vMinDays = d;
+            }
+
+            var vBadge = '';
+            if (vMinDays < 0) {
+              vBadge = '<span class="text-[11px] font-bold bg-rose-100 text-rose-800 px-2 py-0.5 rounded-md">Abgelaufen</span>';
+            } else if (vMinDays <= (state.settings.warningDays || 7)) {
+              vBadge = '<span class="text-[11px] font-semibold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-md">In ' + vMinDays + 'T</span>';
+            } else {
+              vBadge = '<span class="text-[11px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">Nächstes: ' + formatDateDE(vGroup.items[0].expiryDate) + '</span>';
+            }
+
+            var encodedVKey = encodeURIComponent(vGroup.key);
+            var isVarOpen = isSearchingOrFiltering ? true : !!expandedVarieties[vGroup.key];
+
+            html +=
+              '<div class="bg-white rounded-xl border border-slate-200 overflow-hidden">' +
+                '<button type="button" onclick="toggleVarietyFolder(\'' + encodedVKey + '\')" class="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 text-left active:bg-slate-50">' +
+                  '<div class="min-w-0">' +
+                    '<div class="font-semibold text-slate-900 text-sm truncate">' + escapeHTML(vGroup.name) + '</div>' +
+                    '<div class="text-xs text-slate-500 truncate flex items-center gap-1.5 mt-0.5">' +
+                      (vGroup.brand ? '<span>' + escapeHTML(vGroup.brand) + '</span>' : '<span class="italic text-slate-400">Standard</span>') +
+                      vBadge +
+                    '</div>' +
+                  '</div>' +
+                  '<div class="flex items-center gap-1.5 shrink-0">' +
+                    '<span class="bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-xs px-2.5 py-1 rounded-lg">' + vTotalQty + '×</span>' +
+                    '<span class="text-slate-400 text-xs">' + (isVarOpen ? '▲' : '▼') + '</span>' +
+                  '</div>' +
+                '</button>';
+
+            if (isVarOpen) {
+              html += '<div class="border-t border-slate-100 divide-y divide-slate-100 bg-slate-50/40">';
+              for (var itemIdx = 0; itemIdx < vGroup.items.length; itemIdx++) {
+                html += renderPackRowHTML(vGroup.items[itemIdx]);
+              }
+              html += '</div>';
+            }
+
+            html += '</div>';
+          }
+
+          html += '</div>';
+        }
+
+        html += '</div>';
+      }
+
+      listContainer.innerHTML = html;
+    }
+
+    function renderPackRowHTML(item) {
+      var status = getItemStatus(item);
+      var days = getDaysUntil(item.expiryDate);
+
+      var badgeClass = 'bg-emerald-100 text-emerald-800 border-emerald-200';
+      var badgeText = 'MHD ' + formatDateDE(item.expiryDate) + ' (noch ' + days + 'T)';
+      var rowBg = '';
+
+      if (status === 'expired') {
+        badgeClass = 'bg-rose-100 text-rose-800 border-rose-200 font-bold';
+        badgeText = 'Abgelaufen seit ' + Math.abs(days) + 'T (' + formatDateDE(item.expiryDate) + ')';
+        rowBg = 'bg-rose-50/40';
+      } else if (status === 'soon') {
+        badgeClass = 'bg-amber-100 text-amber-900 border-amber-200 font-semibold';
+        badgeText = days === 0 ? 'Läuft heute ab! (' + formatDateDE(item.expiryDate) + ')' : 'In ' + days + 'T fällig (' + formatDateDE(item.expiryDate) + ')';
+        rowBg = 'bg-amber-50/30';
+      }
+
+      var safeId = escapeHTML(item.id);
+      return (
+        '<div class="p-3 ' + rowBg + ' space-y-2">' +
+          '<div class="flex items-center justify-between gap-2">' +
+            '<div class="min-w-0 space-y-0.5">' +
+              '<span class="inline-block text-xs px-2 py-0.5 rounded-md border ' + badgeClass + '">' + escapeHTML(badgeText) + '</span>' +
+              (item.notes ? '<div class="text-xs text-slate-500 truncate">📍 ' + escapeHTML(item.notes) + '</div>' : '') +
+            '</div>' +
+            '<span class="font-bold text-slate-900 text-sm bg-white border border-slate-200 px-2.5 py-0.5 rounded-lg shrink-0">' + item.quantity + '×</span>' +
+          '</div>' +
+          '<div class="flex items-center justify-between gap-1.5 pt-1">' +
+            '<div class="flex items-center gap-1.5">' +
+              '<button onclick="handleItemAction(\'consume-one\', \'' + safeId + '\')" type="button" class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-emerald-600 active:bg-emerald-700 text-white">✓ 1 verbraucht</button>' +
+              '<button onclick="handleItemAction(\'restock-variety\', \'' + safeId + '\')" type="button" class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-white active:bg-slate-100 text-slate-700 border border-slate-200">＋ Nachkauf</button>' +
+            '</div>' +
+            '<div class="flex items-center gap-1">' +
+              '<button onclick="handleItemAction(\'edit\', \'' + safeId + '\')" type="button" class="text-xs font-medium px-2 py-1 rounded-lg text-slate-600 active:bg-slate-200">Bearbeiten</button>' +
+              '<button onclick="handleItemAction(\'delete\', \'' + safeId + '\')" type="button" aria-label="Löschen" class="text-xs font-medium px-2 py-1 rounded-lg text-rose-600 active:bg-rose-100">🗑️</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>'
+      );
+    }
+
+    function handleItemAction(action, id) {
+      var idx = -1;
+      for (var i = 0; i < state.items.length; i++) {
+        if (state.items[i].id === id) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx === -1) return;
+      var item = state.items[idx];
+
+      if (action === 'consume-one') {
+        if (item.quantity > 1) {
+          item.quantity -= 1;
+        } else {
+          state.items.splice(idx, 1);
+        }
+        persist();
+        render();
+      } else if (action === 'delete') {
+        state.items.splice(idx, 1);
+        persist();
+        render();
+      } else if (action === 'edit') {
+        openItemModal({ mode: 'edit', item: item });
+      } else if (action === 'restock-variety') {
+        openItemModal({
+          mode: 'new',
+          prefill: {
+            category: item.category,
+            name: item.name,
+            brand: item.brand,
+            notes: item.notes,
+            barcode: item.barcode,
+            quantity: 1,
+            expiryDate: daysFromNowISO(60)
+          }
+        });
+      }
+    }
+
+    function populateCategorySelect(selectedId) {
+      var select = document.getElementById('item-category');
+      var cats = getCategories();
+      select.innerHTML = '';
+      var hasMatch = false;
+      for (var i = 0; i < cats.length; i++) {
+        var c = cats[i];
+        var opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.icon + ' ' + c.label;
+        if (c.id === selectedId) {
+          opt.selected = true;
+          hasMatch = true;
+        }
+        select.appendChild(opt);
+      }
+      if (!hasMatch && cats.length > 0) {
+        select.value = cats[0].id;
+      }
+    }
+
+    function openItemModal(opts) {
+      opts = opts || {};
+      var mode = opts.mode || 'new';
+      var item = opts.item || null;
+      var prefill = opts.prefill || null;
+      var defaultCat = getCategories()[0] ? getCategories()[0].id : 'nudeln-reis';
+
+      var modal = document.getElementById('modal-item');
+      var title = document.getElementById('modal-item-title');
+
+      if (mode === 'edit' && item) {
+        title.textContent = 'Eintrag bearbeiten';
+        document.getElementById('item-id').value = item.id;
+        document.getElementById('item-barcode').value = item.barcode || '';
+        populateCategorySelect(item.category);
+        document.getElementById('item-expiry').value = item.expiryDate;
+        document.getElementById('item-name').value = item.name;
+        document.getElementById('item-brand').value = item.brand || '';
+        document.getElementById('item-quantity').value = String(item.quantity);
+        document.getElementById('item-notes').value = item.notes || '';
+        populatePresetDropdown(document.getElementById('item-category').value);
+      } else {
+        title.textContent = 'Produkt einlagern';
+        document.getElementById('item-id').value = '';
+        document.getElementById('item-barcode').value = (prefill && prefill.barcode) || '';
+        var catToUse = (prefill && prefill.category) || defaultCat;
+        populateCategorySelect(catToUse);
+        document.getElementById('item-expiry').value = (prefill && prefill.expiryDate) || daysFromNowISO(30);
+        document.getElementById('item-name').value = (prefill && prefill.name) || '';
+        document.getElementById('item-brand').value = (prefill && prefill.brand) || '';
+        document.getElementById('item-quantity').value = String((prefill && prefill.quantity) || 1);
+        document.getElementById('item-notes').value = (prefill && prefill.notes) || '';
+        populatePresetDropdown(document.getElementById('item-category').value);
+      }
+
+      document.getElementById('preset-select').value = '';
+      modal.classList.remove('hidden');
+    }
+
+    function closeItemModal() {
+      stopScanner();
+      document.getElementById('modal-item').classList.add('hidden');
+    }
+
+    function submitItemForm(e) {
+      e.preventDefault();
+      var idVal = document.getElementById('item-id').value;
+      var record = {
+        id: idVal || 'item-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+        category: document.getElementById('item-category').value,
+        expiryDate: document.getElementById('item-expiry').value,
+        name: document.getElementById('item-name').value.trim(),
+        brand: document.getElementById('item-brand').value.trim(),
+        quantity: Math.max(1, parseInt(document.getElementById('item-quantity').value, 10) || 1),
+        notes: document.getElementById('item-notes').value.trim(),
+        barcode: document.getElementById('item-barcode').value.trim()
+      };
+
+      if (!record.name || !record.expiryDate) return;
+
+      if (idVal) {
+        for (var i = 0; i < state.items.length; i++) {
+          if (state.items[i].id === idVal) {
+            state.items[i] = record;
+            break;
+          }
+        }
+      } else {
+        state.items.push(record);
+      }
+
+      expandedCategories[record.category] = true;
+      expandedVarieties[makeVarietyKey(record.category, record.name, record.brand)] = true;
+
+      persist();
+      CalendarReminderHook.onItemSaved(record);
+      closeItemModal();
+      render();
+    }
+
+    function toggleScanner() {
+      if (isScanning) stopScanner();
+      else startScanner();
+    }
+
+    function startScanner() {
+      var readerEl = document.getElementById('qr-reader');
+      var statusEl = document.getElementById('scanner-status');
+      var btn = document.getElementById('btn-toggle-scanner');
+
+      if (typeof Html5Qrcode === 'undefined') {
+        statusEl.textContent = 'Scanner-Modul lädt noch oder ist offline. Bitte manuell eintragen.';
+        return;
+      }
+
+      readerEl.classList.remove('hidden');
+      btn.textContent = 'Stoppen';
+      statusEl.textContent = 'Kamera wird gestartet... Bitte Zugriff erlauben.';
+
+      try {
+        html5QrCode = new Html5Qrcode('qr-reader');
+        isScanning = true;
+        html5QrCode
+          .start(
+            { facingMode: 'environment' },
+            { fps: 10, qrbox: { width: 240, height: 140 } },
+            function (decodedText) {
+              stopScanner();
+              lookupBarcode(decodedText);
+            },
+            function () {}
+          )
+          .then(function () {
+            statusEl.textContent = 'Halte den Barcode in den Rahmen...';
+          })
+          .catch(function () {
+            isScanning = false;
+            readerEl.classList.add('hidden');
+            btn.textContent = 'Kamera starten';
+            statusEl.textContent = 'Kamera nicht verfügbar (benötigt HTTPS & Kamera-Freigabe). Manuelle Eingabe möglich.';
+          });
+      } catch (err) {
+        isScanning = false;
+        readerEl.classList.add('hidden');
+        btn.textContent = 'Kamera starten';
+        statusEl.textContent = 'Kamera konnte nicht gestartet werden.';
+      }
+    }
+
+    function stopScanner() {
+      var btn = document.getElementById('btn-toggle-scanner');
+      var readerEl = document.getElementById('qr-reader');
+      if (html5QrCode && isScanning) {
+        try {
+          html5QrCode.stop().then(function () {
+            html5QrCode.clear();
+          }).catch(function () {});
+        } catch (e) {}
+      }
+      isScanning = false;
+      html5QrCode = null;
+      if (readerEl) readerEl.classList.add('hidden');
+      if (btn) btn.textContent = 'Kamera starten';
+    }
+
+    function detectBucketFromProduct(product, productName) {
+      var cats = (product.categories_tags || []).join(' ').toLowerCase();
+      var nameLower = (productName || '').toLowerCase();
+      var combined = cats + ' ' + nameLower;
+
+      if (
+        combined.indexOf('canned') !== -1 ||
+        combined.indexOf('konserve') !== -1 ||
+        combined.indexOf('dose') !== -1 ||
+        combined.indexOf('tomato') !== -1 ||
+        combined.indexOf('tomaten') !== -1 ||
+        combined.indexOf('passata') !== -1 ||
+        combined.indexOf('passierte') !== -1 ||
+        combined.indexOf('geschälte') !== -1 ||
+        combined.indexOf('mais') !== -1 ||
+        combined.indexOf('bohnen') !== -1 ||
+        combined.indexOf('erbsen') !== -1 ||
+        combined.indexOf('kichererbsen') !== -1
+      ) {
+        return 'konserven';
+      }
+
+      if (
+        combined.indexOf('pasta') !== -1 ||
+        combined.indexOf('noodle') !== -1 ||
+        combined.indexOf('nudeln') !== -1 ||
+        combined.indexOf('spaghetti') !== -1 ||
+        combined.indexOf('penne') !== -1 ||
+        combined.indexOf('fusilli') !== -1 ||
+        combined.indexOf('rice') !== -1 ||
+        combined.indexOf('reis') !== -1
+      ) {
+        return 'nudeln-reis';
+      }
+
+      if (
+        combined.indexOf('herb') !== -1 ||
+        combined.indexOf('spice') !== -1 ||
+        combined.indexOf('gewürz') !== -1 ||
+        combined.indexOf('kräuter') !== -1 ||
+        combined.indexOf('oregano') !== -1 ||
+        combined.indexOf('basilikum') !== -1 ||
+        combined.indexOf('paprikapulver') !== -1 ||
+        combined.indexOf('pfeffer') !== -1 ||
+        combined.indexOf('salz') !== -1 ||
+        combined.indexOf('curry') !== -1 ||
+        combined.indexOf('zimt') !== -1
+      ) {
+        return 'kraeuter-gewuerze';
+      }
+
+      if (
+        combined.indexOf('sauce') !== -1 ||
+        combined.indexOf('soße') !== -1 ||
+        combined.indexOf('pesto') !== -1 ||
+        combined.indexOf('oil') !== -1 ||
+        combined.indexOf('öl') !== -1 ||
+        combined.indexOf('essig') !== -1 ||
+        combined.indexOf('vinegar') !== -1
+      ) {
+        return 'sossen-oele';
+      }
+
+      if (
+        combined.indexOf('beverage') !== -1 ||
+        combined.indexOf('drink') !== -1 ||
+        combined.indexOf('getränk') !== -1 ||
+        combined.indexOf('water') !== -1 ||
+        combined.indexOf('wasser') !== -1 ||
+        combined.indexOf('juice') !== -1 ||
+        combined.indexOf('saft') !== -1
+      ) {
+        return 'getraenke';
+      }
+
+      if (
+        combined.indexOf('chocolate') !== -1 ||
+        combined.indexOf('schokolade') !== -1 ||
+        combined.indexOf('sweet') !== -1 ||
+        combined.indexOf('snack') !== -1 ||
+        combined.indexOf('chips') !== -1 ||
+        combined.indexOf('keks') !== -1
+      ) {
+        return 'suesse-snacks';
+      }
+
+      return 'sonstiges';
+    }
+
+    function matchUserCategoryForProduct(product, productName) {
+      var bucket = detectBucketFromProduct(product, productName);
+      var cats = getCategories();
+      var combined = ((product.categories_tags || []).join(' ') + ' ' + (productName || '')).toLowerCase();
+
+      for (var i = 0; i < cats.length; i++) {
+        var c = cats[i];
+        var words = c.label.toLowerCase().split(/[\s&,\/-]+/);
+        for (var w = 0; w < words.length; w++) {
+          var word = words[w].trim();
+          if (word.length >= 4 && combined.indexOf(word) !== -1) {
+            return c.id;
+          }
+        }
+      }
+
+      for (var j = 0; j < cats.length; j++) {
+        if (cats[j].id === bucket || cats[j].bucket === bucket) {
+          return cats[j].id;
+        }
+      }
+
+      return cats[0] ? cats[0].id : 'sonstiges';
+    }
+
+    function lookupBarcode(code) {
+      var statusEl = document.getElementById('scanner-status');
+      document.getElementById('item-barcode').value = code;
+      statusEl.textContent = 'Barcode ' + code + ' erkannt – suche Produktdaten...';
+
+      fetch('https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(code) + '.json')
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (data && data.status === 1 && data.product) {
+            var p = data.product;
+            var productName = p.product_name_de || p.product_name || '';
+            var brands = p.brands || '';
+            var qtyText = p.quantity || '';
+            var combinedBrand = [brands, qtyText].filter(Boolean).join(' • ');
+
+            if (productName) document.getElementById('item-name').value = productName;
+            if (combinedBrand) document.getElementById('item-brand').value = combinedBrand;
+
+            var matchedCatId = matchUserCategoryForProduct(p, productName);
+            document.getElementById('item-category').value = matchedCatId;
+            populatePresetDropdown(matchedCatId);
+            statusEl.textContent = 'Gefunden: ' + (productName || 'Produkt') + ' → ' + getCategoryMeta(matchedCatId).label + '. Bitte MHD prüfen & speichern.';
+          } else {
+            statusEl.textContent = 'Barcode ' + code + ' nicht in Open Food Facts gefunden – bitte Name & MHD eintragen.';
+          }
+        })
+        .catch(function () {
+          statusEl.textContent = 'Barcode ' + code + ' gespeichert. Bitte Name & MHD manuell eintragen.';
+        });
+    }
+
+    function renderCategoryEditor() {
+      var container = document.getElementById('category-editor-list');
+      var cats = getCategories();
+      var html = '';
+
+      for (var i = 0; i < cats.length; i++) {
+        var c = cats[i];
+        var iconOpts = '';
+        for (var ic = 0; ic < ICON_CHOICES.length; ic++) {
+          var ico = ICON_CHOICES[ic];
+          iconOpts += '<option value="' + ico + '"' + (c.icon === ico ? ' selected' : '') + '>' + ico + '</option>';
+        }
+        var sugId = 'edit-cat-sug-' + i;
+        var inpId = 'edit-cat-name-' + i;
+        var icoId = 'edit-cat-icon-' + i;
+
+        html +=
+          '<div class="relative bg-slate-50 border border-slate-200 rounded-xl p-2 space-y-1.5">' +
+            '<div class="flex items-center gap-1.5">' +
+              '<select id="' + icoId + '" aria-label="Icon" class="rounded-lg border border-slate-300 bg-white px-1.5 py-1.5 text-sm">' +
+                iconOpts +
+              '</select>' +
+              '<input id="' + inpId + '" type="text" autocomplete="off" value="' + escapeHTML(c.label) + '" ' +
+                'onfocus="renderCategorySuggestions(\'' + inpId + '\', \'' + sugId + '\', \'' + icoId + '\')" ' +
+                'oninput="renderCategorySuggestions(\'' + inpId + '\', \'' + sugId + '\', \'' + icoId + '\')" ' +
+                'onblur="hideSuggestionsDelayed(\'' + sugId + '\')" ' +
+                'class="flex-1 min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-900" />' +
+              (cats.length > 1
+                ? '<button type="button" onclick="removeCategory(\'' + escapeHTML(c.id) + '\')" aria-label="Kategorie entfernen" class="px-2 py-1 text-xs text-rose-600 active:bg-rose-50 rounded-lg">✕</button>'
+                : '') +
+            '</div>' +
+            '<div id="' + sugId + '" class="hidden absolute left-2 right-2 top-full mt-0.5 z-50 bg-white border border-slate-200 rounded-xl shadow-lg max-h-40 overflow-y-auto divide-y divide-slate-100"></div>' +
+          '</div>';
+      }
+
+      container.innerHTML = html;
+    }
+
+    function renderCategorySuggestions(inputId, suggestionBoxId, iconSelectId) {
+      var inputEl = document.getElementById(inputId);
+      var boxEl = document.getElementById(suggestionBoxId);
+      if (!inputEl || !boxEl) return;
+
+      var query = (inputEl.value || '').trim().toLowerCase();
+      var matches = CATEGORY_SUGGESTIONS.filter(function (s) {
+        if (!query) return true;
+        return s.label.toLowerCase().indexOf(query) !== -1 || s.bucket.toLowerCase().indexOf(query) !== -1;
+      });
+
+      if (matches.length === 0) {
+        boxEl.classList.add('hidden');
+        return;
+      }
+
+      var html = '';
+      for (var i = 0; i < matches.length; i++) {
+        var m = matches[i];
+        html +=
+          '<button type="button" onmousedown="event.preventDefault(); selectCategorySuggestion(\'' +
+          inputId + '\', \'' + suggestionBoxId + '\', \'' + iconSelectId + '\', \'' +
+          escapeHTML(m.label) + '\', \'' + m.icon + '\')" ' +
+          'class="w-full px-3 py-2 text-left text-xs hover:bg-emerald-50 active:bg-emerald-100 flex items-center justify-between gap-2">' +
+          '<span class="flex items-center gap-2 font-medium text-slate-800"><span>' + m.icon + '</span><span>' + escapeHTML(m.label) + '</span></span>' +
+          '<span class="text-[10px] text-emerald-700 font-semibold">Vorschlag</span>' +
+          '</button>';
+      }
+      boxEl.innerHTML = html;
+      boxEl.classList.remove('hidden');
+    }
+
+    function selectCategorySuggestion(inputId, suggestionBoxId, iconSelectId, label, icon) {
+      var inputEl = document.getElementById(inputId);
+      var iconEl = document.getElementById(iconSelectId);
+      var boxEl = document.getElementById(suggestionBoxId);
+      if (inputEl) inputEl.value = label;
+      if (iconEl) iconEl.value = icon;
+      if (boxEl) boxEl.classList.add('hidden');
+    }
+
+    function hideSuggestionsDelayed(suggestionBoxId) {
+      setTimeout(function () {
+        var boxEl = document.getElementById(suggestionBoxId);
+        if (boxEl) boxEl.classList.add('hidden');
+      }, 150);
+    }
+
+    function syncCategoryInputsFromEditor() {
+      var cats = getCategories();
+      for (var i = 0; i < cats.length; i++) {
+        var inp = document.getElementById('edit-cat-name-' + i);
+        var ico = document.getElementById('edit-cat-icon-' + i);
+        if (inp && inp.value.trim()) {
+          cats[i].label = inp.value.trim();
+        }
+        if (ico && ico.value) {
+          cats[i].icon = ico.value;
+        }
+      }
+    }
+
+    function addCustomCategory() {
+      syncCategoryInputsFromEditor();
+      var nameInput = document.getElementById('new-cat-name');
+      var iconSelect = document.getElementById('new-cat-icon');
+      var rawName = (nameInput.value || '').trim();
+      if (!rawName) return;
+
+      var slug = rawName
+        .toLowerCase()
+        .replace(/ä/g, 'ae')
+        .replace(/ö/g, 'oe')
+        .replace(/ü/g, 'ue')
+        .replace(/ß/g, 'ss')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+      var uniqueId = (slug || 'kat') + '-' + Date.now().toString(36).slice(-4);
+
+      var inferredBucket = 'sonstiges';
+      for (var s = 0; s < CATEGORY_SUGGESTIONS.length; s++) {
+        if (CATEGORY_SUGGESTIONS[s].label.toLowerCase() === rawName.toLowerCase()) {
+          inferredBucket = CATEGORY_SUGGESTIONS[s].bucket;
+          break;
+        }
+      }
+
+      state.categories.push({
+        id: uniqueId,
+        label: rawName,
+        icon: iconSelect.value || '📦',
+        bucket: inferredBucket
+      });
+
+      nameInput.value = '';
+      persist();
+      renderCategoryEditor();
+      render();
+    }
+
+    function removeCategory(catId) {
+      syncCategoryInputsFromEditor();
+      var cats = getCategories();
+      if (cats.length <= 1) return;
+      var fallback = cats[0].id === catId ? cats[1].id : cats[0].id;
+
+      for (var i = 0; i < state.items.length; i++) {
+        if (state.items[i].category === catId) {
+          state.items[i].category = fallback;
+        }
+      }
+
+      state.categories = cats.filter(function (c) { return c.id !== catId; });
+      persist();
+      renderCategoryEditor();
+      render();
+    }
+
+    function resetCategoriesToDefault() {
+      state.categories = cloneDefaultCategories();
+      persist();
+      renderCategoryEditor();
+      render();
+    }
+
+    function openSettingsModal() {
+      document.getElementById('warning-days-input').value = String(state.settings.warningDays || 7);
+      renderCategoryEditor();
+      document.getElementById('modal-settings').classList.remove('hidden');
+    }
+
+    function closeSettingsModal() {
+      document.getElementById('modal-settings').classList.add('hidden');
+    }
+
+    function saveSettings() {
+      syncCategoryInputsFromEditor();
+      var days = Math.max(1, Math.min(90, parseInt(document.getElementById('warning-days-input').value, 10) || 7));
+      state.settings.warningDays = days;
+      persist();
+      closeSettingsModal();
+      render();
+    }
+
+    function clearAllData() {
+      state = createDefaultState();
+      expandedCategories = {};
+      expandedVarieties = {};
+      persist();
+      closeSettingsModal();
+      render();
+    }
+
+    function exportBackupJSON() {
+      syncCategoryInputsFromEditor();
+      var blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'vorrats-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function importBackupJSON(e) {
+      var file = e.target.files && e.target.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        try {
+          var parsed = JSON.parse(String(reader.result));
+          if (parsed && Array.isArray(parsed.items)) {
+            state = {
+              settings: Object.assign({}, createDefaultState().settings, parsed.settings || {}),
+              categories: Array.isArray(parsed.categories) && parsed.categories.length > 0
+                ? parsed.categories
+                : cloneDefaultCategories(),
+              items: parsed.items
+            };
+            persist();
+            closeSettingsModal();
+            render();
+          }
+        } catch (err) {
+          alert('Ungültige Backup-Datei.');
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    render();
+  </script>
+</body>
+</html>
