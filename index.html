@@ -38,7 +38,10 @@
           <span>🫙</span>
           <span>Keller & Vorrat</span>
         </h1>
-        <p id="header-subtitle" class="text-xs text-slate-500">Kategorien → Sorten → MHD-Packungen</p>
+        <p id="header-subtitle" class="text-xs text-slate-500 flex items-center gap-1.5">
+          <span>Kategorien → Sorten → MHD</span>
+          <span id="storage-badge" class="inline-flex items-center gap-0.5 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded-md">🛡️ Gesichert</span>
+        </p>
       </div>
       <div class="flex items-center gap-1.5">
         <button id="btn-open-add" onclick="openItemModal({ mode: 'new' })" type="button" class="bg-emerald-600 active:bg-emerald-700 text-white text-sm font-semibold px-3 py-2 rounded-xl shadow-sm flex items-center gap-1">
@@ -58,6 +61,9 @@
     <main class="flex-1 px-4 py-4 space-y-4 safe-bottom">
       <!-- Diagnostic / Error Banner -->
       <div id="js-error-banner" class="hidden rounded-2xl border border-rose-400 bg-rose-100 text-rose-950 p-3 text-xs font-mono"></div>
+
+      <!-- Recovery Info Banner -->
+      <div id="recovery-banner" class="hidden rounded-2xl border border-emerald-300 bg-emerald-50 text-emerald-950 p-3 text-xs font-medium"></div>
 
       <!-- Expiration Alert Banner -->
       <div id="alert-banner" class="hidden rounded-2xl border p-3.5 text-sm"></div>
@@ -241,7 +247,8 @@
       </div>
 
       <div class="space-y-2 pt-2 border-t border-slate-100">
-        <div class="text-xs font-semibold text-slate-700">Datensicherung (JSON Backup)</div>
+        <div class="text-xs font-semibold text-slate-700">Datensicherung (Doppel-Speicher + JSON-Datei)</div>
+        <p class="text-[11px] text-slate-500">Alle Einträge werden automatisch doppelt (LocalStorage + IndexedDB) gesichert. Zusätzlich kannst du hier eine Datei exportieren.</p>
         <div class="flex gap-2">
           <button onclick="exportBackupJSON()" type="button" class="flex-1 py-2.5 px-3 rounded-xl border border-slate-300 active:bg-slate-50 text-xs font-semibold text-slate-800">
             ⬇️ Backup exportieren
@@ -315,19 +322,108 @@
       onItemExpired: function () {}
     };
 
+    // =========================================================================
+    // Dual-Storage Persistence (LocalStorage + Shadow Backup + IndexedDB)
+    // Prevents accidental data loss on iOS PWA reloads or WebKit cache resets
+    // =========================================================================
     var STORAGE_KEY = 'keller_vorrat_v1';
+    var BACKUP_STORAGE_KEY = 'keller_vorrat_backup_v1';
+    var IDB_NAME = 'keller_vorrat_db';
+    var IDB_STORE = 'app_state';
+
+    function openIDB(callback) {
+      try {
+        if (!window.indexedDB) return callback(null);
+        var req = indexedDB.open(IDB_NAME, 1);
+        req.onupgradeneeded = function (e) {
+          var db = e.target.result;
+          if (!db.objectStoreNames.contains(IDB_STORE)) {
+            db.createObjectStore(IDB_STORE);
+          }
+        };
+        req.onsuccess = function (e) {
+          callback(e.target.result);
+        };
+        req.onerror = function () {
+          callback(null);
+        };
+      } catch (err) {
+        callback(null);
+      }
+    }
+
+    function writeToIDB(data) {
+      openIDB(function (db) {
+        if (!db) return;
+        try {
+          var tx = db.transaction(IDB_STORE, 'readwrite');
+          tx.objectStore(IDB_STORE).put(JSON.parse(JSON.stringify(data)), 'current');
+        } catch (err) {}
+      });
+    }
+
+    function readFromIDB(callback) {
+      openIDB(function (db) {
+        if (!db) return callback(null);
+        try {
+          var tx = db.transaction(IDB_STORE, 'readonly');
+          var getReq = tx.objectStore(IDB_STORE).get('current');
+          getReq.onsuccess = function () {
+            callback(getReq.result || null);
+          };
+          getReq.onerror = function () {
+            callback(null);
+          };
+        } catch (err) {
+          callback(null);
+        }
+      });
+    }
+
     var LocalStorageAdapter = {
       load: function () {
+        var primary = null;
+        var shadow = null;
         try {
           var raw = localStorage.getItem(STORAGE_KEY);
-          return raw ? JSON.parse(raw) : null;
-        } catch (err) {
-          return null;
-        }
-      },
-      save: function (data) {
+          if (raw) primary = JSON.parse(raw);
+        } catch (err) {}
+
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+          var rawBackup = localStorage.getItem(BACKUP_STORAGE_KEY);
+          if (rawBackup) shadow = JSON.parse(rawBackup);
+        } catch (err2) {}
+
+        // If primary was wiped or empty while shadow still holds items, restore from shadow
+        if (primary && Array.isArray(primary.items) && primary.items.length > 0) {
+          return primary;
+        }
+        if (shadow && Array.isArray(shadow.items) && shadow.items.length > 0) {
+          return shadow;
+        }
+        return primary || shadow || null;
+      },
+      save: function (data, allowEmptyOverwrite) {
+        try {
+          // Guard against accidentally overwriting existing items with an empty array unless explicitly cleared
+          if (!allowEmptyOverwrite && (!data.items || data.items.length === 0)) {
+            var existingRaw = localStorage.getItem(STORAGE_KEY);
+            if (existingRaw) {
+              var existing = JSON.parse(existingRaw);
+              if (existing && Array.isArray(existing.items) && existing.items.length > 0) {
+                return;
+              }
+            }
+          }
+          var payload = Object.assign({}, data, { updatedAt: Date.now() });
+          var serialized = JSON.stringify(payload);
+          localStorage.setItem(STORAGE_KEY, serialized);
+          if (payload.items && payload.items.length > 0) {
+            localStorage.setItem(BACKUP_STORAGE_KEY, serialized);
+          } else if (allowEmptyOverwrite) {
+            localStorage.removeItem(BACKUP_STORAGE_KEY);
+          }
+          writeToIDB(payload);
         } catch (err) {}
       }
     };
@@ -364,6 +460,39 @@
       state.items = [];
     }
 
+    // Request persistent storage on supported browsers so iOS/Safari does not evict data under storage pressure
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist().catch(function () {});
+    }
+
+    // Async IndexedDB recovery check: if localStorage was empty on reload, restore from IndexedDB automatically
+    readFromIDB(function (idbData) {
+      if (!idbData || !Array.isArray(idbData.items)) return;
+      if (state.items.length === 0 && idbData.items.length > 0) {
+        state = Object.assign(createDefaultState(), idbData);
+        if (!Array.isArray(state.categories) || state.categories.length === 0) {
+          state.categories = cloneDefaultCategories();
+        }
+        LocalStorageAdapter.save(state, false);
+        var recBanner = document.getElementById('recovery-banner');
+        if (recBanner) {
+          recBanner.classList.remove('hidden');
+          recBanner.textContent = '🛡️ ' + state.items.length + ' gespeicherte Einträge wurden automatisch aus der Sicherung wiederhergestellt.';
+        }
+        render();
+      } else if (state.items.length > 0) {
+        // Sync current state into IndexedDB
+        writeToIDB(state);
+      }
+    });
+
+    // Save state cleanly when iOS suspends or navigates away from the PWA
+    window.addEventListener('pagehide', function () {
+      if (state && Array.isArray(state.items) && state.items.length > 0) {
+        LocalStorageAdapter.save(state, false);
+      }
+    });
+
     var activeStatusFilter = 'all';
     var searchQuery = '';
     var expandedCategories = {};
@@ -381,6 +510,10 @@
       if (isReloading) return;
       isReloading = true;
       stopScanner();
+
+      if (state && Array.isArray(state.items) && state.items.length > 0) {
+        LocalStorageAdapter.save(state, false);
+      }
 
       var indicator = document.getElementById('ptr-indicator');
       if (indicator) {
@@ -450,8 +583,8 @@
       }, { passive: true });
     })();
 
-    function persist() {
-      LocalStorageAdapter.save(state);
+    function persist(allowEmptyOverwrite) {
+      LocalStorageAdapter.save(state, !!allowEmptyOverwrite);
     }
 
     function getDaysUntil(dateStr) {
@@ -861,11 +994,11 @@
         } else {
           state.items.splice(idx, 1);
         }
-        persist();
+        persist(state.items.length === 0);
         render();
       } else if (action === 'delete') {
         state.items.splice(idx, 1);
-        persist();
+        persist(state.items.length === 0);
         render();
       } else if (action === 'edit') {
         openItemModal({ mode: 'edit', item: item });
@@ -980,7 +1113,7 @@
       expandedCategories[record.category] = true;
       expandedVarieties[makeVarietyKey(record.category, record.name, record.brand)] = true;
 
-      persist();
+      persist(false);
       CalendarReminderHook.onItemSaved(record);
       closeItemModal();
       render();
@@ -1329,7 +1462,7 @@
       });
 
       nameInput.value = '';
-      persist();
+      persist(false);
       renderCategoryEditor();
       render();
     }
@@ -1347,14 +1480,14 @@
       }
 
       state.categories = cats.filter(function (c) { return c.id !== catId; });
-      persist();
+      persist(false);
       renderCategoryEditor();
       render();
     }
 
     function resetCategoriesToDefault() {
       state.categories = cloneDefaultCategories();
-      persist();
+      persist(false);
       renderCategoryEditor();
       render();
     }
@@ -1373,16 +1506,19 @@
       syncCategoryInputsFromEditor();
       var days = Math.max(1, Math.min(90, parseInt(document.getElementById('warning-days-input').value, 10) || 7));
       state.settings.warningDays = days;
-      persist();
+      persist(false);
       closeSettingsModal();
       render();
     }
 
     function clearAllData() {
+      if (state.items.length > 0 && !confirm('Wirklich alle ' + state.items.length + ' gespeicherten Einträge unwiderruflich löschen?')) {
+        return;
+      }
       state = createDefaultState();
       expandedCategories = {};
       expandedVarieties = {};
-      persist();
+      persist(true);
       closeSettingsModal();
       render();
     }
@@ -1413,7 +1549,7 @@
                 : cloneDefaultCategories(),
               items: parsed.items
             };
-            persist();
+            persist(parsed.items.length === 0);
             closeSettingsModal();
             render();
           }
