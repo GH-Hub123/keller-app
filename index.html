@@ -26,6 +26,11 @@
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen antialiased">
   <div id="app" class="max-w-xl mx-auto min-h-screen flex flex-col bg-slate-50 shadow-sm">
+    <!-- Pull-to-Refresh Indicator -->
+    <div id="ptr-indicator" class="hidden bg-emerald-600 text-white text-xs font-semibold text-center py-2 px-4 transition-all">
+      ↓ Zum Aktualisieren ziehen…
+    </div>
+
     <!-- Header -->
     <header class="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200 px-4 py-3 flex items-center justify-between">
       <div>
@@ -35,10 +40,13 @@
         </h1>
         <p id="header-subtitle" class="text-xs text-slate-500">Kategorien → Sorten → MHD-Packungen</p>
       </div>
-      <div class="flex items-center gap-2">
-        <button id="btn-open-add" onclick="openItemModal({ mode: 'new' })" type="button" class="bg-emerald-600 active:bg-emerald-700 text-white text-sm font-semibold px-3.5 py-2 rounded-xl shadow-sm flex items-center gap-1.5">
+      <div class="flex items-center gap-1.5">
+        <button id="btn-open-add" onclick="openItemModal({ mode: 'new' })" type="button" class="bg-emerald-600 active:bg-emerald-700 text-white text-sm font-semibold px-3 py-2 rounded-xl shadow-sm flex items-center gap-1">
           <span>＋</span>
           <span>Neu</span>
+        </button>
+        <button id="btn-reload-app" onclick="pullToRefreshReload()" type="button" aria-label="Neu laden" title="Seite neu laden" class="p-2 rounded-xl border border-slate-200 bg-white active:bg-slate-100 text-slate-700 text-sm">
+          🔄
         </button>
         <button id="btn-open-settings" onclick="openSettingsModal()" type="button" aria-label="Einstellungen" class="p-2 rounded-xl border border-slate-200 bg-white active:bg-slate-100 text-slate-700">
           ⚙️
@@ -268,10 +276,57 @@
     var state = LocalStorageAdapter.load() || createDefaultState();
     var activeStatusFilter = 'all';
     var searchQuery = '';
-    var expandedCategories = {}; // Level 1: categoryId -> true/false
-    var expandedVarieties = {};  // Level 2: varietyKey -> true/false
+    var expandedCategories = {};
+    var expandedVarieties = {};
     var html5QrCode = null;
     var isScanning = false;
+
+    // Pull-to-Refresh for iOS standalone PWA & mobile browsers
+    function pullToRefreshReload() {
+      var indicator = document.getElementById('ptr-indicator');
+      if (indicator) {
+        indicator.classList.remove('hidden');
+        indicator.textContent = '↻ Seite wird neu geladen…';
+      }
+      var baseUrl = window.location.href.split('?')[0];
+      window.location.replace(baseUrl + '?v=' + Date.now());
+    }
+
+    (function initPullToRefresh() {
+      var startY = 0;
+      var pulling = false;
+      var indicator = document.getElementById('ptr-indicator');
+
+      document.addEventListener('touchstart', function (e) {
+        if (window.scrollY <= 0 && e.touches && e.touches.length === 1) {
+          startY = e.touches[0].clientY;
+          pulling = true;
+        } else {
+          pulling = false;
+        }
+      }, { passive: true });
+
+      document.addEventListener('touchmove', function (e) {
+        if (!pulling || !e.touches || e.touches.length !== 1) return;
+        var dy = e.touches[0].clientY - startY;
+        if (window.scrollY <= 0 && dy > 24 && indicator) {
+          indicator.classList.remove('hidden');
+          indicator.textContent = dy > 85 ? '↑ Loslassen zum Aktualisieren' : '↓ Weiter nach unten ziehen…';
+        }
+      }, { passive: true });
+
+      document.addEventListener('touchend', function (e) {
+        if (!pulling) return;
+        pulling = false;
+        var endY = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0].clientY : startY;
+        var dy = endY - startY;
+        if (window.scrollY <= 0 && dy > 85) {
+          pullToRefreshReload();
+        } else if (indicator) {
+          indicator.classList.add('hidden');
+        }
+      }, { passive: true });
+    })();
 
     function persist() {
       LocalStorageAdapter.save(state);
@@ -310,10 +365,10 @@
 
     function escapeHTML(str) {
       return String(str || '')
-        .replace(/&/g, '&')
-        .replace(/</g, '<')
-        .replace(/>/g, '>')
-        .replace(/"/g, '"');
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
     }
 
     function makeVarietyKey(catId, name, brand) {
@@ -402,9 +457,6 @@
       render();
     }
 
-    // =========================================================================
-    // 3-LEVEL RENDERING: Categories -> Varieties -> Individual Packs (MHD asc)
-    // =========================================================================
     function render() {
       var expiredItems = [];
       var soonItems = [];
@@ -491,7 +543,6 @@
         return;
       }
 
-      // Group filtered items by Category (Level 1)
       var catBuckets = {};
       for (var f = 0; f < filtered.length; f++) {
         var item = filtered[f];
@@ -509,7 +560,6 @@
         var catExpiredCount = 0;
         var catSoonCount = 0;
 
-        // Group itemsInCat by Variety (Level 2: name + brand)
         var varietyMap = {};
         var varietyOrder = [];
         for (var m = 0; m < itemsInCat.length; m++) {
@@ -532,7 +582,6 @@
           varietyMap[vKey].items.push(itm);
         }
 
-        // Sort varieties alphabetically
         varietyOrder.sort(function (a, b) {
           return varietyMap[a].name.localeCompare(varietyMap[b].name, 'de');
         });
@@ -568,7 +617,6 @@
 
           for (var v = 0; v < varietyOrder.length; v++) {
             var vGroup = varietyMap[varietyOrder[v]];
-            // Sort individual packs inside variety by earliest expiry date first (least remaining MHD on top)
             vGroup.items.sort(function (a, b) {
               return getDaysUntil(a.expiryDate) - getDaysUntil(b.expiryDate);
             });
@@ -660,7 +708,7 @@
           '<div class="flex items-center justify-between gap-1.5 pt-1">' +
             '<div class="flex items-center gap-1.5">' +
               '<button onclick="handleItemAction(\'consume-one\', \'' + safeId + '\')" type="button" class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-emerald-600 active:bg-emerald-700 text-white">✓ 1 verbraucht</button>' +
-              '<button onclick="handleItemAction(\'restock-variety\', \'' + safeId + '\')" type="button" class="text-xs font-semibold px-2 py-1 rounded-lg bg-white active:bg-slate-100 text-slate-700 border border-slate-200">＋ Nachkauf</button>' +
+              '<button onclick="handleItemAction(\'restock-variety\', \'' + safeId + '\')" type="button" class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-white active:bg-slate-100 text-slate-700 border border-slate-200">＋ Nachkauf</button>' +
             '</div>' +
             '<div class="flex items-center gap-1">' +
               '<button onclick="handleItemAction(\'edit\', \'' + safeId + '\')" type="button" class="text-xs font-medium px-2 py-1 rounded-lg text-slate-600 active:bg-slate-200">Bearbeiten</button>' +
@@ -795,7 +843,6 @@
         state.items.push(record);
       }
 
-      // Automatically expand the newly saved category & variety so the user sees it immediately
       expandedCategories[record.category] = true;
       expandedVarieties[makeVarietyKey(record.category, record.name, record.brand)] = true;
 
@@ -875,7 +922,6 @@
       var nameLower = (productName || '').toLowerCase();
       var combined = cats + ' ' + nameLower;
 
-      // 1. Check Canned / Tomato products BEFORE spices/condiments (fixes "Passierte Tomaten")
       if (
         combined.indexOf('canned') !== -1 ||
         combined.indexOf('konserve') !== -1 ||
@@ -893,7 +939,6 @@
         return 'konserven';
       }
 
-      // 2. Pasta & Rice
       if (
         combined.indexOf('pasta') !== -1 ||
         combined.indexOf('noodle') !== -1 ||
@@ -907,7 +952,6 @@
         return 'nudeln-reis';
       }
 
-      // 3. True Herbs & Spices (strictly spices/herbs, not generic "condiment" sauces)
       if (
         combined.indexOf('herb') !== -1 ||
         combined.indexOf('spice') !== -1 ||
@@ -924,7 +968,6 @@
         return 'kraeuter-gewuerze';
       }
 
-      // 4. Sauces & Oils
       if (
         combined.indexOf('sauce') !== -1 ||
         combined.indexOf('soße') !== -1 ||
@@ -937,7 +980,6 @@
         return 'sossen-oele';
       }
 
-      // 5. Beverages
       if (
         combined.indexOf('beverage') !== -1 ||
         combined.indexOf('drink') !== -1 ||
@@ -950,7 +992,6 @@
         return 'getraenke';
       }
 
-      // 6. Sweets & Snacks
       if (
         combined.indexOf('chocolate') !== -1 ||
         combined.indexOf('schokolade') !== -1 ||
