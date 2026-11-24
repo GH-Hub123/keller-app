@@ -7,9 +7,48 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Vorrats-Tracker" />
   <meta name="theme-color" content="#16a34a" />
-  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%2316a34a'/%3E%3Crect x='54' y='34' width='72' height='16' rx='6' fill='%23ffffff'/%3E%3Crect x='42' y='54' width='96' height='94' rx='22' fill='%23ffffff'/%3E%3Crect x='54' y='98' width='72' height='38' rx='12' fill='%23dcfce7'/%3E%3C/svg%3E" />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%2316a34a'/%3E%3Crect x='54' y='34' width='72' height='16' rx='6' fill='%23ffffff'/%3E%3Crect x='42' y='54' width='96' height='94' rx='22' fill='%23ffffff'/%3E%3Crect x='54' y='98' width='72' height='38' rx='12' fill='%23dcfce7'/%3E%3C/svg%3E" />
+  <link id="apple-touch-icon-link" rel="apple-touch-icon" sizes="180x180" href="" />
+  <link id="favicon-link" rel="icon" type="image/png" href="" />
   <title>Kellerbestand & Vorrats-Tracker</title>
+  <script>
+    (function generatePwaPngIcon() {
+      try {
+        var canvas = document.createElement('canvas');
+        canvas.width = 180;
+        canvas.height = 180;
+        var ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        // Grüner Hintergrund
+        ctx.fillStyle = '#16a34a';
+        ctx.fillRect(0, 0, 180, 180);
+
+        // Deckel des Vorratsglases
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.roundRect(54, 32, 72, 16, 6);
+        ctx.fill();
+
+        // Glaskörper
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.roundRect(42, 53, 96, 95, 22);
+        ctx.fill();
+
+        // Füllstand / Etikett im Glas
+        ctx.fillStyle = '#dcfce7';
+        ctx.beginPath();
+        ctx.roundRect(54, 98, 72, 38, 12);
+        ctx.fill();
+
+        var pngUrl = canvas.toDataURL('image/png');
+        var appleLink = document.getElementById('apple-touch-icon-link');
+        var favLink = document.getElementById('favicon-link');
+        if (appleLink) appleLink.href = pngUrl;
+        if (favLink) favLink.href = pngUrl;
+      } catch (e) {}
+    })();
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body {
