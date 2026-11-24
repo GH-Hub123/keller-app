@@ -33,7 +33,7 @@
           <span>🫙</span>
           <span>Keller & Vorrat</span>
         </h1>
-        <p id="header-subtitle" class="text-xs text-slate-500">Lokal gespeichert • Bereit</p>
+        <p id="header-subtitle" class="text-xs text-slate-500">Kategorien → Sorten → MHD-Packungen</p>
       </div>
       <div class="flex items-center gap-2">
         <button id="btn-open-add" onclick="openItemModal({ mode: 'new' })" type="button" class="bg-emerald-600 active:bg-emerald-700 text-white text-sm font-semibold px-3.5 py-2 rounded-xl shadow-sm flex items-center gap-1.5">
@@ -70,24 +70,19 @@
         </button>
       </section>
 
-      <!-- Search & View Mode Controls -->
-      <section class="bg-white rounded-2xl p-3 border border-slate-200 space-y-2.5">
-        <div class="flex gap-2">
-          <div class="relative flex-1">
-            <input id="search-input" oninput="handleSearchInput(this.value)" type="search" placeholder="Produkt, Sorte oder Marke suchen..." class="w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 py-2 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-            <span class="absolute left-3 top-2.5 text-slate-400 text-sm">🔍</span>
-          </div>
-          <button id="btn-group-toggle" onclick="toggleGroupMode()" type="button" class="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 active:bg-slate-100 text-xs font-semibold text-slate-700 whitespace-nowrap">
-            Sort: MHD
-          </button>
+      <!-- Search & Collapse Controls -->
+      <section class="bg-white rounded-2xl p-3 border border-slate-200 flex gap-2 items-center">
+        <div class="relative flex-1">
+          <input id="search-input" oninput="handleSearchInput(this.value)" type="search" placeholder="Produkt, Sorte oder Marke suchen..." class="w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 py-2 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          <span class="absolute left-3 top-2.5 text-slate-400 text-sm">🔍</span>
         </div>
-
-        <!-- Category Filter Chips -->
-        <div id="category-filters" class="flex gap-1.5 overflow-x-auto pb-1"></div>
+        <button onclick="collapseAllFolders()" type="button" class="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 active:bg-slate-100 text-xs font-semibold text-slate-700 whitespace-nowrap" title="Alle Reiter zuklappen">
+          Alle zu
+        </button>
       </section>
 
-      <!-- Inventory List -->
-      <section id="inventory-container" class="space-y-3"></section>
+      <!-- 3-Level Accordion Inventory Container -->
+      <section id="inventory-container" class="space-y-2.5"></section>
     </main>
   </div>
 
@@ -141,13 +136,13 @@
 
         <div>
           <label for="item-name" class="block text-xs font-semibold text-slate-700 mb-1">Produkt / Sorte *</label>
-          <input id="item-name" type="text" required placeholder="z. B. Spaghetti Nr. 5, Penne Rigate, Oregano..." class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" />
+          <input id="item-name" type="text" required placeholder="z. B. Spaghetti Nr. 5, Passierte Tomaten, Oregano..." class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" />
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label for="item-brand" class="block text-xs font-semibold text-slate-700 mb-1">Hersteller / Variante</label>
-            <input id="item-brand" type="text" placeholder="z. B. Barilla, Bio, 500g" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" />
+            <input id="item-brand" type="text" placeholder="z. B. Barilla, Mutti, 500g" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" />
           </div>
           <div>
             <label for="item-quantity" class="block text-xs font-semibold text-slate-700 mb-1">Anzahl Packungen</label>
@@ -224,8 +219,8 @@
 
     var CATEGORIES = [
       { id: 'nudeln-reis', label: 'Nudeln & Reis', icon: '🍝' },
-      { id: 'kraeuter-gewuerze', label: 'Kräuter & Gewürze', icon: '🌿' },
       { id: 'konserven', label: 'Konserven', icon: '🥫' },
+      { id: 'kraeuter-gewuerze', label: 'Kräuter & Gewürze', icon: '🌿' },
       { id: 'sossen-oele', label: 'Soßen & Öle', icon: '🫙' },
       { id: 'getraenke', label: 'Getränke', icon: '🥤' },
       { id: 'suesse-snacks', label: 'Süßes & Snacks', icon: '🍫' },
@@ -264,17 +259,17 @@
     function createDefaultState() {
       return {
         settings: {
-          warningDays: 7,
-          groupByCategory: false
+          warningDays: 7
         },
         items: []
       };
     }
 
     var state = LocalStorageAdapter.load() || createDefaultState();
-    var activeCategory = 'all';
     var activeStatusFilter = 'all';
     var searchQuery = '';
+    var expandedCategories = {}; // Level 1: categoryId -> true/false
+    var expandedVarieties = {};  // Level 2: varietyKey -> true/false
     var html5QrCode = null;
     var isScanning = false;
 
@@ -319,6 +314,10 @@
         .replace(/</g, '<')
         .replace(/>/g, '>')
         .replace(/"/g, '"');
+    }
+
+    function makeVarietyKey(catId, name, brand) {
+      return catId + '::' + name.trim().toLowerCase() + '::' + (brand || '').trim().toLowerCase();
     }
 
     function getKnownVarietiesForCategory(catId) {
@@ -376,11 +375,6 @@
       }
     }
 
-    function selectCategoryFilter(catId) {
-      activeCategory = catId;
-      render();
-    }
-
     function toggleStatusFilter(st) {
       activeStatusFilter = activeStatusFilter === st ? 'all' : st;
       render();
@@ -391,16 +385,29 @@
       render();
     }
 
-    function toggleGroupMode() {
-      state.settings.groupByCategory = !state.settings.groupByCategory;
-      persist();
+    function toggleCategoryFolder(catId) {
+      expandedCategories[catId] = !expandedCategories[catId];
       render();
     }
 
+    function toggleVarietyFolder(encodedKey) {
+      var key = decodeURIComponent(encodedKey);
+      expandedVarieties[key] = !expandedVarieties[key];
+      render();
+    }
+
+    function collapseAllFolders() {
+      expandedCategories = {};
+      expandedVarieties = {};
+      render();
+    }
+
+    // =========================================================================
+    // 3-LEVEL RENDERING: Categories -> Varieties -> Individual Packs (MHD asc)
+    // =========================================================================
     function render() {
       var expiredItems = [];
       var soonItems = [];
-      var okItems = [];
       var expiredQty = 0;
       var soonQty = 0;
       var okQty = 0;
@@ -415,7 +422,6 @@
           soonItems.push(it);
           soonQty += it.quantity;
         } else {
-          okItems.push(it);
           okQty += it.quantity;
         }
       }
@@ -451,19 +457,10 @@
         cards[c].classList.toggle('ring-slate-800', isAct);
       }
 
-      var catContainer = document.getElementById('category-filters');
-      var chipsHTML = createFilterChipHTML('all', 'Alle', '📋', activeCategory === 'all');
-      for (var k = 0; k < CATEGORIES.length; k++) {
-        var cat = CATEGORIES[k];
-        chipsHTML += createFilterChipHTML(cat.id, cat.label, cat.icon, activeCategory === cat.id);
-      }
-      catContainer.innerHTML = chipsHTML;
-
-      document.getElementById('btn-group-toggle').textContent = state.settings.groupByCategory ? 'Sort: Kategorie' : 'Sort: MHD';
-
       var q = searchQuery.trim().toLowerCase();
+      var isSearchingOrFiltering = q.length > 0 || activeStatusFilter !== 'all';
+
       var filtered = state.items.filter(function (item) {
-        if (activeCategory !== 'all' && item.category !== activeCategory) return false;
         if (activeStatusFilter !== 'all' && getItemStatus(item) !== activeStatusFilter) return false;
         if (q) {
           var catLabel = getCategoryMeta(item.category).label.toLowerCase();
@@ -473,12 +470,8 @@
         return true;
       });
 
-      filtered.sort(function (a, b) {
-        return getDaysUntil(a.expiryDate) - getDaysUntil(b.expiryDate);
-      });
-
       var listContainer = document.getElementById('inventory-container');
-      if (filtered.length === 0) {
+      if (state.items.length === 0) {
         listContainer.innerHTML =
           '<div class="bg-white rounded-2xl border border-dashed border-slate-300 p-8 text-center space-y-2">' +
           '<div class="text-3xl">🫙</div>' +
@@ -488,103 +481,190 @@
         return;
       }
 
-      if (state.settings.groupByCategory) {
-        var groups = {};
-        var groupOrder = [];
-        for (var f = 0; f < filtered.length; f++) {
-          var item = filtered[f];
-          if (!groups[item.category]) {
-            groups[item.category] = [];
-            groupOrder.push(item.category);
-          }
-          groups[item.category].push(item);
-        }
-
-        var groupedHTML = '';
-        for (var g = 0; g < groupOrder.length; g++) {
-          var cid = groupOrder[g];
-          var meta = getCategoryMeta(cid);
-          var list = groups[cid];
-          var totalQty = list.reduce(function (s, x) { return s + x.quantity; }, 0);
-          groupedHTML +=
-            '<div class="space-y-2">' +
-            '<div class="flex items-center justify-between px-1 pt-1">' +
-            '<h2 class="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">' +
-            '<span>' + meta.icon + '</span><span>' + escapeHTML(meta.label) + '</span>' +
-            '</h2>' +
-            '<span class="text-xs font-semibold text-slate-500 bg-slate-200/70 px-2 py-0.5 rounded-full">' +
-            list.length + ' Sorte(n) • ' + totalQty + ' Stk.' +
-            '</span>' +
-            '</div>';
-          for (var m = 0; m < list.length; m++) {
-            groupedHTML += renderItemCardHTML(list[m], false);
-          }
-          groupedHTML += '</div>';
-        }
-        listContainer.innerHTML = groupedHTML;
-      } else {
-        var flatHTML = '';
-        for (var j = 0; j < filtered.length; j++) {
-          flatHTML += renderItemCardHTML(filtered[j], true);
-        }
-        listContainer.innerHTML = flatHTML;
+      if (filtered.length === 0) {
+        listContainer.innerHTML =
+          '<div class="bg-white rounded-2xl border border-dashed border-slate-300 p-8 text-center space-y-2">' +
+          '<div class="text-3xl">🔍</div>' +
+          '<div class="font-semibold text-slate-800 text-sm">Keine passenden Vorräte gefunden</div>' +
+          '<p class="text-xs text-slate-500">Passe deine Suche oder den Status-Filter oben an.</p>' +
+          '</div>';
+        return;
       }
+
+      // Group filtered items by Category (Level 1)
+      var catBuckets = {};
+      for (var f = 0; f < filtered.length; f++) {
+        var item = filtered[f];
+        if (!catBuckets[item.category]) catBuckets[item.category] = [];
+        catBuckets[item.category].push(item);
+      }
+
+      var html = '';
+      for (var k = 0; k < CATEGORIES.length; k++) {
+        var cat = CATEGORIES[k];
+        var itemsInCat = catBuckets[cat.id];
+        if (!itemsInCat || itemsInCat.length === 0) continue;
+
+        var totalCatQty = 0;
+        var catExpiredCount = 0;
+        var catSoonCount = 0;
+
+        // Group itemsInCat by Variety (Level 2: name + brand)
+        var varietyMap = {};
+        var varietyOrder = [];
+        for (var m = 0; m < itemsInCat.length; m++) {
+          var itm = itemsInCat[m];
+          totalCatQty += itm.quantity;
+          var stItem = getItemStatus(itm);
+          if (stItem === 'expired') catExpiredCount += itm.quantity;
+          else if (stItem === 'soon') catSoonCount += itm.quantity;
+
+          var vKey = makeVarietyKey(cat.id, itm.name, itm.brand);
+          if (!varietyMap[vKey]) {
+            varietyMap[vKey] = {
+              key: vKey,
+              name: itm.name,
+              brand: itm.brand || '',
+              items: []
+            };
+            varietyOrder.push(vKey);
+          }
+          varietyMap[vKey].items.push(itm);
+        }
+
+        // Sort varieties alphabetically
+        varietyOrder.sort(function (a, b) {
+          return varietyMap[a].name.localeCompare(varietyMap[b].name, 'de');
+        });
+
+        var isCatOpen = isSearchingOrFiltering ? true : !!expandedCategories[cat.id];
+        var catBadges = '';
+        if (catExpiredCount > 0) {
+          catBadges += '<span class="text-[11px] font-bold bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full">🚨 ' + catExpiredCount + '</span>';
+        }
+        if (catSoonCount > 0) {
+          catBadges += '<span class="text-[11px] font-semibold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full">⏳ ' + catSoonCount + '</span>';
+        }
+
+        html +=
+          '<div class="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">' +
+            '<button type="button" onclick="toggleCategoryFolder(\'' + cat.id + '\')" class="w-full px-4 py-3.5 flex items-center justify-between gap-2 text-left active:bg-slate-50">' +
+              '<div class="flex items-center gap-2.5 min-w-0">' +
+                '<span class="text-xl">' + cat.icon + '</span>' +
+                '<div class="min-w-0">' +
+                  '<div class="font-bold text-slate-900 text-base truncate">' + escapeHTML(cat.label) + '</div>' +
+                  '<div class="text-xs text-slate-500">' + varietyOrder.length + (varietyOrder.length === 1 ? ' Sorte' : ' Sorten') + '</div>' +
+                '</div>' +
+              '</div>' +
+              '<div class="flex items-center gap-1.5 shrink-0">' +
+                catBadges +
+                '<span class="bg-slate-900 text-white font-bold text-xs px-2.5 py-1 rounded-xl">' + totalCatQty + ' Stk.</span>' +
+                '<span class="text-slate-400 text-xs ml-1">' + (isCatOpen ? '▲' : '▼') + '</span>' +
+              '</div>' +
+            '</button>';
+
+        if (isCatOpen) {
+          html += '<div class="border-t border-slate-100 bg-slate-50/70 p-2.5 space-y-2">';
+
+          for (var v = 0; v < varietyOrder.length; v++) {
+            var vGroup = varietyMap[varietyOrder[v]];
+            // Sort individual packs inside variety by earliest expiry date first (least remaining MHD on top)
+            vGroup.items.sort(function (a, b) {
+              return getDaysUntil(a.expiryDate) - getDaysUntil(b.expiryDate);
+            });
+
+            var vTotalQty = 0;
+            var vMinDays = 99999;
+            for (var pIdx = 0; pIdx < vGroup.items.length; pIdx++) {
+              vTotalQty += vGroup.items[pIdx].quantity;
+              var d = getDaysUntil(vGroup.items[pIdx].expiryDate);
+              if (d < vMinDays) vMinDays = d;
+            }
+
+            var vBadge = '';
+            if (vMinDays < 0) {
+              vBadge = '<span class="text-[11px] font-bold bg-rose-100 text-rose-800 px-2 py-0.5 rounded-md">Abgelaufen</span>';
+            } else if (vMinDays <= (state.settings.warningDays || 7)) {
+              vBadge = '<span class="text-[11px] font-semibold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-md">In ' + vMinDays + 'T</span>';
+            } else {
+              vBadge = '<span class="text-[11px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">Nächstes: ' + formatDateDE(vGroup.items[0].expiryDate) + '</span>';
+            }
+
+            var encodedVKey = encodeURIComponent(vGroup.key);
+            var isVarOpen = isSearchingOrFiltering ? true : !!expandedVarieties[vGroup.key];
+
+            html +=
+              '<div class="bg-white rounded-xl border border-slate-200 overflow-hidden">' +
+                '<button type="button" onclick="toggleVarietyFolder(\'' + encodedVKey + '\')" class="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 text-left active:bg-slate-50">' +
+                  '<div class="min-w-0">' +
+                    '<div class="font-semibold text-slate-900 text-sm truncate">' + escapeHTML(vGroup.name) + '</div>' +
+                    '<div class="text-xs text-slate-500 truncate flex items-center gap-1.5 mt-0.5">' +
+                      (vGroup.brand ? '<span>' + escapeHTML(vGroup.brand) + '</span>' : '<span class="italic text-slate-400">Standard</span>') +
+                      vBadge +
+                    '</div>' +
+                  '</div>' +
+                  '<div class="flex items-center gap-1.5 shrink-0">' +
+                    '<span class="bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-xs px-2.5 py-1 rounded-lg">' + vTotalQty + '×</span>' +
+                    '<span class="text-slate-400 text-xs">' + (isVarOpen ? '▲' : '▼') + '</span>' +
+                  '</div>' +
+                '</button>';
+
+            if (isVarOpen) {
+              html += '<div class="border-t border-slate-100 divide-y divide-slate-100 bg-slate-50/40">';
+              for (var itemIdx = 0; itemIdx < vGroup.items.length; itemIdx++) {
+                html += renderPackRowHTML(vGroup.items[itemIdx]);
+              }
+              html += '</div>';
+            }
+
+            html += '</div>';
+          }
+
+          html += '</div>';
+        }
+
+        html += '</div>';
+      }
+
+      listContainer.innerHTML = html;
     }
 
-    function createFilterChipHTML(id, label, icon, active) {
-      var cls = active
-        ? 'bg-slate-900 text-white shadow-xs'
-        : 'bg-slate-100 text-slate-700 active:bg-slate-200';
-      return '<button type="button" onclick="selectCategoryFilter(\'' + id + '\')" class="px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap flex items-center gap-1 ' + cls + '">' +
-        '<span>' + icon + '</span><span>' + escapeHTML(label) + '</span></button>';
-    }
-
-    function renderItemCardHTML(item, showCategoryBadge) {
+    function renderPackRowHTML(item) {
       var status = getItemStatus(item);
       var days = getDaysUntil(item.expiryDate);
-      var cat = getCategoryMeta(item.category);
 
       var badgeClass = 'bg-emerald-100 text-emerald-800 border-emerald-200';
-      var badgeText = 'MHD ' + formatDateDE(item.expiryDate) + ' (' + days + 'T)';
-      var borderClass = 'border-slate-200';
+      var badgeText = 'MHD ' + formatDateDE(item.expiryDate) + ' (noch ' + days + 'T)';
+      var rowBg = '';
 
       if (status === 'expired') {
         badgeClass = 'bg-rose-100 text-rose-800 border-rose-200 font-bold';
         badgeText = 'Abgelaufen seit ' + Math.abs(days) + 'T (' + formatDateDE(item.expiryDate) + ')';
-        borderClass = 'border-rose-300 bg-rose-50/30';
+        rowBg = 'bg-rose-50/40';
       } else if (status === 'soon') {
         badgeClass = 'bg-amber-100 text-amber-900 border-amber-200 font-semibold';
-        badgeText = days === 0 ? 'Läuft heute ab!' : 'In ' + days + 'T fällig (' + formatDateDE(item.expiryDate) + ')';
-        borderClass = 'border-amber-300 bg-amber-50/20';
+        badgeText = days === 0 ? 'Läuft heute ab! (' + formatDateDE(item.expiryDate) + ')' : 'In ' + days + 'T fällig (' + formatDateDE(item.expiryDate) + ')';
+        rowBg = 'bg-amber-50/30';
       }
 
       var safeId = escapeHTML(item.id);
       return (
-        '<div class="bg-white rounded-2xl border ' + borderClass + ' p-3.5 flex flex-col gap-2.5">' +
-          '<div class="flex items-start justify-between gap-2">' +
-            '<div class="min-w-0">' +
-              '<div class="flex items-center gap-1.5 flex-wrap">' +
-                (showCategoryBadge ? '<span class="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">' + cat.icon + ' ' + escapeHTML(cat.label) + '</span>' : '') +
-                '<span class="text-xs px-2 py-0.5 rounded-md border ' + badgeClass + '">' + escapeHTML(badgeText) + '</span>' +
-              '</div>' +
-              '<h3 class="font-bold text-slate-900 text-base mt-1 truncate">' + escapeHTML(item.name) + '</h3>' +
-              '<p class="text-xs text-slate-600 truncate">' +
-                (item.brand ? escapeHTML(item.brand) : '<span class="italic text-slate-400">Keine Marke/Sorte angegeben</span>') +
-                (item.notes ? ' • <span class="text-slate-500">' + escapeHTML(item.notes) + '</span>' : '') +
-              '</p>' +
+        '<div class="p-3 ' + rowBg + ' space-y-2">' +
+          '<div class="flex items-center justify-between gap-2">' +
+            '<div class="min-w-0 space-y-0.5">' +
+              '<span class="inline-block text-xs px-2 py-0.5 rounded-md border ' + badgeClass + '">' + escapeHTML(badgeText) + '</span>' +
+              (item.notes ? '<div class="text-xs text-slate-500 truncate">📍 ' + escapeHTML(item.notes) + '</div>' : '') +
             '</div>' +
-            '<div class="text-right shrink-0">' +
-              '<span class="inline-flex items-center justify-center bg-slate-100 text-slate-900 font-bold text-sm px-2.5 py-1 rounded-xl">' + item.quantity + '×</span>' +
-            '</div>' +
+            '<span class="font-bold text-slate-900 text-sm bg-white border border-slate-200 px-2.5 py-0.5 rounded-lg shrink-0">' + item.quantity + '×</span>' +
           '</div>' +
-          '<div class="flex items-center justify-between pt-2 border-t border-slate-100 gap-2">' +
+          '<div class="flex items-center justify-between gap-1.5 pt-1">' +
             '<div class="flex items-center gap-1.5">' +
-              '<button onclick="handleItemAction(\'consume-one\', \'' + safeId + '\')" type="button" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-emerald-50 active:bg-emerald-100 text-emerald-800 border border-emerald-200">✓ 1 verbraucht</button>' +
-              '<button onclick="handleItemAction(\'restock-variety\', \'' + safeId + '\')" type="button" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-slate-50 active:bg-slate-100 text-slate-700 border border-slate-200">＋ Sorte</button>' +
+              '<button onclick="handleItemAction(\'consume-one\', \'' + safeId + '\')" type="button" class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-emerald-600 active:bg-emerald-700 text-white">✓ 1 verbraucht</button>' +
+              '<button onclick="handleItemAction(\'restock-variety\', \'' + safeId + '\')" type="button" class="text-xs font-semibold px-2 py-1 rounded-lg bg-white active:bg-slate-100 text-slate-700 border border-slate-200">＋ Nachkauf</button>' +
             '</div>' +
             '<div class="flex items-center gap-1">' +
-              '<button onclick="handleItemAction(\'edit\', \'' + safeId + '\')" type="button" class="text-xs font-medium px-2.5 py-1.5 rounded-lg text-slate-600 active:bg-slate-100">Bearbeiten</button>' +
-              '<button onclick="handleItemAction(\'delete\', \'' + safeId + '\')" type="button" aria-label="Löschen" class="text-xs font-medium px-2 py-1.5 rounded-lg text-rose-600 active:bg-rose-50">🗑️</button>' +
+              '<button onclick="handleItemAction(\'edit\', \'' + safeId + '\')" type="button" class="text-xs font-medium px-2 py-1 rounded-lg text-slate-600 active:bg-slate-200">Bearbeiten</button>' +
+              '<button onclick="handleItemAction(\'delete\', \'' + safeId + '\')" type="button" aria-label="Löschen" class="text-xs font-medium px-2 py-1 rounded-lg text-rose-600 active:bg-rose-100">🗑️</button>' +
             '</div>' +
           '</div>' +
         '</div>'
@@ -653,7 +733,6 @@
 
       var modal = document.getElementById('modal-item');
       var title = document.getElementById('modal-item-title');
-      var defaultCat = activeCategory !== 'all' ? activeCategory : 'nudeln-reis';
 
       if (mode === 'edit' && item) {
         title.textContent = 'Eintrag bearbeiten';
@@ -670,7 +749,7 @@
         title.textContent = 'Produkt einlagern';
         document.getElementById('item-id').value = '';
         document.getElementById('item-barcode').value = (prefill && prefill.barcode) || '';
-        var catToUse = (prefill && prefill.category) || defaultCat;
+        var catToUse = (prefill && prefill.category) || 'nudeln-reis';
         populateCategorySelect(catToUse);
         document.getElementById('item-expiry').value = (prefill && prefill.expiryDate) || daysFromNowISO(30);
         document.getElementById('item-name').value = (prefill && prefill.name) || '';
@@ -715,6 +794,10 @@
       } else {
         state.items.push(record);
       }
+
+      // Automatically expand the newly saved category & variety so the user sees it immediately
+      expandedCategories[record.category] = true;
+      expandedVarieties[makeVarietyKey(record.category, record.name, record.brand)] = true;
 
       persist();
       CalendarReminderHook.onItemSaved(record);
@@ -787,6 +870,101 @@
       btn.textContent = 'Kamera starten';
     }
 
+    function guessCategoryFromProduct(product, productName) {
+      var cats = (product.categories_tags || []).join(' ').toLowerCase();
+      var nameLower = (productName || '').toLowerCase();
+      var combined = cats + ' ' + nameLower;
+
+      // 1. Check Canned / Tomato products BEFORE spices/condiments (fixes "Passierte Tomaten")
+      if (
+        combined.indexOf('canned') !== -1 ||
+        combined.indexOf('konserve') !== -1 ||
+        combined.indexOf('dose') !== -1 ||
+        combined.indexOf('tomato') !== -1 ||
+        combined.indexOf('tomaten') !== -1 ||
+        combined.indexOf('passata') !== -1 ||
+        combined.indexOf('passierte') !== -1 ||
+        combined.indexOf('geschälte') !== -1 ||
+        combined.indexOf('mais') !== -1 ||
+        combined.indexOf('bohnen') !== -1 ||
+        combined.indexOf('erbsen') !== -1 ||
+        combined.indexOf('kichererbsen') !== -1
+      ) {
+        return 'konserven';
+      }
+
+      // 2. Pasta & Rice
+      if (
+        combined.indexOf('pasta') !== -1 ||
+        combined.indexOf('noodle') !== -1 ||
+        combined.indexOf('nudeln') !== -1 ||
+        combined.indexOf('spaghetti') !== -1 ||
+        combined.indexOf('penne') !== -1 ||
+        combined.indexOf('fusilli') !== -1 ||
+        combined.indexOf('rice') !== -1 ||
+        combined.indexOf('reis') !== -1
+      ) {
+        return 'nudeln-reis';
+      }
+
+      // 3. True Herbs & Spices (strictly spices/herbs, not generic "condiment" sauces)
+      if (
+        combined.indexOf('herb') !== -1 ||
+        combined.indexOf('spice') !== -1 ||
+        combined.indexOf('gewürz') !== -1 ||
+        combined.indexOf('kräuter') !== -1 ||
+        combined.indexOf('oregano') !== -1 ||
+        combined.indexOf('basilikum') !== -1 ||
+        combined.indexOf('paprikapulver') !== -1 ||
+        combined.indexOf('pfeffer') !== -1 ||
+        combined.indexOf('salz') !== -1 ||
+        combined.indexOf('curry') !== -1 ||
+        combined.indexOf('zimt') !== -1
+      ) {
+        return 'kraeuter-gewuerze';
+      }
+
+      // 4. Sauces & Oils
+      if (
+        combined.indexOf('sauce') !== -1 ||
+        combined.indexOf('soße') !== -1 ||
+        combined.indexOf('pesto') !== -1 ||
+        combined.indexOf('oil') !== -1 ||
+        combined.indexOf('öl') !== -1 ||
+        combined.indexOf('essig') !== -1 ||
+        combined.indexOf('vinegar') !== -1
+      ) {
+        return 'sossen-oele';
+      }
+
+      // 5. Beverages
+      if (
+        combined.indexOf('beverage') !== -1 ||
+        combined.indexOf('drink') !== -1 ||
+        combined.indexOf('getränk') !== -1 ||
+        combined.indexOf('water') !== -1 ||
+        combined.indexOf('wasser') !== -1 ||
+        combined.indexOf('juice') !== -1 ||
+        combined.indexOf('saft') !== -1
+      ) {
+        return 'getraenke';
+      }
+
+      // 6. Sweets & Snacks
+      if (
+        combined.indexOf('chocolate') !== -1 ||
+        combined.indexOf('schokolade') !== -1 ||
+        combined.indexOf('sweet') !== -1 ||
+        combined.indexOf('snack') !== -1 ||
+        combined.indexOf('chips') !== -1 ||
+        combined.indexOf('keks') !== -1
+      ) {
+        return 'suesse-snacks';
+      }
+
+      return 'sonstiges';
+    }
+
     function lookupBarcode(code) {
       var statusEl = document.getElementById('scanner-status');
       document.getElementById('item-barcode').value = code;
@@ -805,22 +983,10 @@
             if (productName) document.getElementById('item-name').value = productName;
             if (combinedBrand) document.getElementById('item-brand').value = combinedBrand;
 
-            var cats = (p.categories_tags || []).join(' ').toLowerCase();
-            if (cats.indexOf('pasta') !== -1 || cats.indexOf('noodle') !== -1 || cats.indexOf('rice') !== -1) {
-              document.getElementById('item-category').value = 'nudeln-reis';
-            } else if (cats.indexOf('herb') !== -1 || cats.indexOf('spice') !== -1 || cats.indexOf('condiment') !== -1) {
-              document.getElementById('item-category').value = 'kraeuter-gewuerze';
-            } else if (cats.indexOf('canned') !== -1 || cats.indexOf('tomato') !== -1) {
-              document.getElementById('item-category').value = 'konserven';
-            } else if (cats.indexOf('sauce') !== -1 || cats.indexOf('oil') !== -1) {
-              document.getElementById('item-category').value = 'sossen-oele';
-            } else if (cats.indexOf('beverage') !== -1 || cats.indexOf('drink') !== -1 || cats.indexOf('water') !== -1 || cats.indexOf('juice') !== -1) {
-              document.getElementById('item-category').value = 'getraenke';
-            } else if (cats.indexOf('chocolate') !== -1 || cats.indexOf('sweet') !== -1 || cats.indexOf('snack') !== -1) {
-              document.getElementById('item-category').value = 'suesse-snacks';
-            }
-            populatePresetDropdown(document.getElementById('item-category').value);
-            statusEl.textContent = 'Gefunden: ' + (productName || 'Produkt') + ' (' + code + '). Bitte MHD prüfen & speichern.';
+            var guessedCat = guessCategoryFromProduct(p, productName);
+            document.getElementById('item-category').value = guessedCat;
+            populatePresetDropdown(guessedCat);
+            statusEl.textContent = 'Gefunden: ' + (productName || 'Produkt') + ' → ' + getCategoryMeta(guessedCat).label + '. Bitte MHD prüfen & speichern.';
           } else {
             statusEl.textContent = 'Barcode ' + code + ' nicht in Open Food Facts gefunden – bitte Name & MHD eintragen.';
           }
@@ -849,6 +1015,8 @@
 
     function clearAllData() {
       state = createDefaultState();
+      expandedCategories = {};
+      expandedVarieties = {};
       persist();
       closeSettingsModal();
       render();
